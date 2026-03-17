@@ -46,6 +46,7 @@ Launcher behavior:
 - otherwise sets `CODEX_CLI_PATH` from `which codex`
 - errors if neither is available
 - sets `APPIMAGE_EXTRACT_AND_RUN=1` by default for broader compatibility
+- AppImage and `linux-unpacked` binaries also perform the same `codex` lookup at launch
 
 ## GitHub Actions
 

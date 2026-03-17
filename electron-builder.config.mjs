@@ -17,6 +17,7 @@ if (!outputDir) {
 export default {
   appId,
   productName,
+  afterPack: "scripts/electron-builder-after-pack.cjs",
   directories: {
     app: stageAppDir,
     output: outputDir
