@@ -1,0 +1,19 @@
+{
+  "name": "codex-app-linux-publisher",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Build and publish Linux Codex desktop app repacks.",
+  "author": "Zero Caulk <zero@composer.group>",
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "release:prod": "node scripts/release-channel.mjs --channel prod",
+    "release:beta": "node scripts/release-channel.mjs --channel beta"
+  },
+  "devDependencies": {
+    "@electron/asar": "4.1.0",
+    "@electron/rebuild": "4.0.3",
+    "electron": "40.0.0",
+    "electron-builder": "26.8.1"
+  }
+}

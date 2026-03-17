@@ -1,3 +1,6 @@
 __golden__
 node_modules
 dist
+.cache
+stage
+tmp

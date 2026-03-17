@@ -1,0 +1,51 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Force rebuild/publish even if the npm version already exists
+        required: false
+        default: "false"
+  schedule:
+    - cron: "0 0,12 * * *"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [prod, beta]
+    permissions:
+      contents: read
+    env:
+      NPM_CONFIG_PROVENANCE: "true"
+      NPM_PACKAGE_NAME: "@cau1k/codex-app-linux"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full
+
+      - name: Install repo deps
+        run: npm ci
+
+      - name: Publish channel
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          extra_args=""
+          if [ "${{ github.event.inputs.force || 'false' }}" = "true" ]; then
+            extra_args="--force"
+          fi
+          node scripts/release-channel.mjs \
+            --channel "${{ matrix.channel }}" \
+            --publish \
+            $extra_args
