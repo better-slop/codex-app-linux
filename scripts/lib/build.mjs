@@ -327,14 +327,14 @@ function wrapperScript(appCommand) {
   return `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 
 const appExecutable = path.join(__dirname, "..", "app", "${appCommand}");
-const resolvedCodex = findCodex();
+const resolvedCodex = resolveCodexCliPath();
 
 if (!resolvedCodex) {
-  console.error("codex-app-linux: no 'codex' executable found on PATH.");
-  console.error("Install Codex first, then retry.");
+  console.error("codex-app-linux: CODEX_CLI_PATH is not set and 'which codex' returned nothing.");
+  console.error("Set CODEX_CLI_PATH explicitly or install 'codex' on PATH.");
   process.exit(1);
 }
 
@@ -355,19 +355,34 @@ child.on("exit", (code, signal) => {
   process.exit(code ?? 0);
 });
 
-function findCodex() {
-  const paths = (process.env.PATH || "").split(path.delimiter).filter(Boolean);
+function resolveCodexCliPath() {
+  if (isExecutable(process.env.CODEX_CLI_PATH)) {
+    return process.env.CODEX_CLI_PATH;
+  }
 
-  for (const entry of paths) {
-    const candidate = path.join(entry, "codex");
+  const result = spawnSync("which", ["codex"], {
+    encoding: "utf8"
+  });
+  const candidate = result.status === 0 ? result.stdout.trim() : "";
 
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch {}
+  if (isExecutable(candidate)) {
+    return candidate;
   }
 
   return null;
+}
+
+function isExecutable(candidate) {
+  if (!candidate) {
+    return false;
+  }
+
+  try {
+    fs.accessSync(candidate, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 `;
 }

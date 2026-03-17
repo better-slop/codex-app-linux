@@ -30,8 +30,9 @@ node scripts/release-channel.mjs \
 The published npm package:
 
 - does not bundle or install the Codex CLI
-- resolves `codex` from `PATH` at launch time
-- exports `CODEX_CLI_PATH` before starting the desktop app
+- uses existing `CODEX_CLI_PATH` if set
+- otherwise sets `CODEX_CLI_PATH` from `which codex`
+- errors if neither is available
 
 ## GitHub Actions
 
