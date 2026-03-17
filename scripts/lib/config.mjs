@@ -6,20 +6,28 @@ export const distRoot = path.join(projectRoot, "dist");
 export const stageRoot = path.join(projectRoot, "stage");
 export const cacheRoot = path.join(projectRoot, ".cache");
 export const defaultPackageName =
-  process.env.NPM_PACKAGE_NAME || "@cau1k/codex-app-linux";
-export const defaultAppCommand =
-  process.env.CODEX_APP_COMMAND || "codex-desktop";
+  process.env.NPM_PACKAGE_NAME || "codex-app-linux";
+export const defaultLauncherCommand =
+  process.env.CODEX_APP_COMMAND || "codex-app-linux";
+export const defaultReleaseRepo =
+  process.env.CODEX_RELEASE_REPO || "cau1k/codex-app-linux";
 
 export const channels = {
   prod: {
     appcastUrl: "https://persistent.oaistatic.com/codex-app-prod/appcast.xml",
     distTag: "latest",
-    displayName: "Codex"
+    displayName: "Codex",
+    appId: "com.openai.codex.linux",
+    executableName: "codex-app-linux",
+    prerelease: false
   },
   beta: {
     appcastUrl: "https://persistent.oaistatic.com/codex-app-beta/appcast.xml",
     distTag: "beta",
-    displayName: "Codex Beta"
+    displayName: "Codex Beta",
+    appId: "com.openai.codex.beta.linux",
+    executableName: "codex-app-linux-beta",
+    prerelease: true
   }
 };
 
@@ -39,6 +47,14 @@ export function npmVersionFor(channelName, upstream) {
   }
 
   return `${upstream.version}-beta.${upstream.buildNumber}`;
+}
+
+export function releaseTagForVersion(version) {
+  return `v${version}`;
+}
+
+export function assetBaseName(packageName, version) {
+  return `${packageName}-${version}-x64`;
 }
 
 export function channelPaths(channelName) {

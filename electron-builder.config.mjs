@@ -1,6 +1,10 @@
 const stageAppDir = process.env.CODEX_STAGE_APP_DIR;
 const outputDir = process.env.CODEX_OUTPUT_DIR;
-const executableName = process.env.CODEX_APP_EXECUTABLE_NAME || "codex-desktop";
+const executableName = process.env.CODEX_APP_EXECUTABLE_NAME || "codex-app-linux";
+const appId = process.env.CODEX_APP_ID || "com.openai.codex.linux";
+const productName = process.env.CODEX_PRODUCT_NAME || "Codex";
+const desktopName = process.env.CODEX_DESKTOP_NAME || productName;
+const linuxIconPath = process.env.CODEX_LINUX_ICON_PATH;
 
 if (!stageAppDir) {
   throw new Error("CODEX_STAGE_APP_DIR is required");
@@ -11,6 +15,8 @@ if (!outputDir) {
 }
 
 export default {
+  appId,
+  productName,
   directories: {
     app: stageAppDir,
     output: outputDir
@@ -34,8 +40,17 @@ export default {
     }
   ],
   linux: {
-    target: ["dir"],
+    target: ["dir", "AppImage"],
     executableName,
-    category: "Development"
+    category: "Development",
+    description: `${desktopName} for Linux`,
+    artifactName: "${productName}-${version}-${arch}.${ext}",
+    icon: linuxIconPath,
+    desktop: {
+      entry: {
+        Name: desktopName,
+        StartupWMClass: desktopName
+      }
+    }
   }
 };

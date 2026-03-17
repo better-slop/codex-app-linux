@@ -1,22 +1,27 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { pipeline } from "node:stream/promises";
 import { createWriteStream } from "node:fs";
 import { spawn } from "node:child_process";
+import { pipeline } from "node:stream/promises";
 
 import {
+  assetBaseName,
   channelPaths,
-  defaultAppCommand,
+  defaultLauncherCommand,
   defaultPackageName,
+  defaultReleaseRepo,
   npmVersionFor,
-  projectRoot
+  projectRoot,
+  releaseTagForVersion
 } from "./config.mjs";
 
 export async function buildChannel({
   channel,
   upstream,
   packageName = defaultPackageName,
-  appCommand = defaultAppCommand,
+  launcherCommand = defaultLauncherCommand,
+  releaseRepo = defaultReleaseRepo,
   archiveOverride
 }) {
   const paths = channelPaths(channel.name);
@@ -48,41 +53,75 @@ export async function buildChannel({
     upstream,
     archiveOverride || null
   );
+  const packageVersion = npmVersionFor(channel.name, effectiveUpstream);
+  const releaseTag = releaseTagForVersion(packageVersion);
+  const assetPrefix = assetBaseName(packageName, packageVersion);
+  const linuxIconPath = await createLinuxIcon(paths.stageDir, paths.stageAppDir);
 
   await hydrateNativeModules(paths.stageDir, paths.stageAppDir);
-  await buildLinuxDirectory(paths.stageAppDir, paths.outputDir, appCommand);
+  await buildLinuxArtifacts({
+    stageAppDir: paths.stageAppDir,
+    outputDir: paths.outputDir,
+    executableName: channel.executableName,
+    productName: channel.displayName,
+    desktopName: channel.displayName,
+    appId: channel.appId,
+    linuxIconPath
+  });
 
   const linuxDir = path.join(paths.outputDir, "linux-unpacked");
-  const npmVersion = npmVersionFor(channel.name, effectiveUpstream);
+  const appImagePath = await renameAppImage(paths.outputDir, `${assetPrefix}.AppImage`);
+  const unpackedTarballPath = path.join(
+    paths.outputDir,
+    `${assetPrefix}-linux-unpacked.tar.gz`
+  );
+
+  await packDirectory(linuxDir, unpackedTarballPath);
+
+  const appImageSha256 = await sha256File(appImagePath);
+  const unpackedTarballSha256 = await sha256File(unpackedTarballPath);
+  const checksumsPath = path.join(paths.outputDir, `${assetPrefix}.sha256`);
+
+  await fs.writeFile(
+    checksumsPath,
+    [
+      `${appImageSha256}  ${path.basename(appImagePath)}`,
+      `${unpackedTarballSha256}  ${path.basename(unpackedTarballPath)}`
+    ].join("\n") + "\n"
+  );
+
   const packageDir = await assembleNpmPackage({
     channel,
     upstream: effectiveUpstream,
     packageName,
-    packageVersion: npmVersion,
-    appCommand,
-    linuxDir,
+    packageVersion,
+    launcherCommand,
+    releaseRepo,
+    releaseTag,
+    appImageAssetName: path.basename(appImagePath),
+    appImageSha256,
     targetDir: paths.npmDir
   });
 
   return {
     archivePath,
+    npmVersion: packageVersion,
+    packageDir,
     linuxDir,
-    npmVersion,
-    packageDir
+    appImagePath,
+    unpackedTarballPath,
+    checksumsPath,
+    releaseRepo,
+    releaseTag
   };
 }
 
 export async function npmVersionExists(packageName, version) {
-  const command = [
-    "npm",
-    "view",
-    `${packageName}@${version}`,
-    "version",
-    "--json"
-  ];
-
   try {
-    const output = await run(command, { capture: true });
+    const output = await run(
+      ["npm", "view", `${packageName}@${version}`, "version", "--json"],
+      { capture: true }
+    );
 
     return output.trim().length > 0;
   } catch {
@@ -143,71 +182,6 @@ async function findAppBundle(rootDir) {
   throw new Error(`No .app bundle found under ${rootDir}`);
 }
 
-async function hydrateNativeModules(stageDir, stageAppDir) {
-  const nativeWorkspaceDir = path.join(stageDir, "native-workspace");
-  const stagePackageJson = JSON.parse(
-    await fs.readFile(path.join(stageAppDir, "package.json"), "utf8")
-  );
-  const betterSqliteVersion = stagePackageJson.dependencies["better-sqlite3"];
-  const nodePtyVersion = stagePackageJson.dependencies["node-pty"];
-
-  await ensureEmptyDir(nativeWorkspaceDir);
-  await fs.writeFile(
-    path.join(nativeWorkspaceDir, "package.json"),
-    `${JSON.stringify(
-      {
-        name: "codex-app-linux-native-workspace",
-        private: true,
-        dependencies: {
-          "better-sqlite3": betterSqliteVersion,
-          "node-pty": nodePtyVersion,
-          bindings: "^1.5.0",
-          "file-uri-to-path": "^1.0.0",
-          "node-addon-api": "^8.5.0",
-          "prebuild-install": "^7.1.3",
-          tslib: "^2.8.1"
-        }
-      },
-      null,
-      2
-    )}\n`
-  );
-
-  await run(["npm", "install", "--no-package-lock"], {
-    cwd: nativeWorkspaceDir
-  });
-
-  await run([
-    "npx",
-    "--no-install",
-    "electron-rebuild",
-    "--version",
-    "40.0.0",
-    "--arch",
-    "x64",
-    "--module-dir",
-    nativeWorkspaceDir,
-    "--force",
-    "--only",
-    "better-sqlite3,node-pty"
-  ]);
-
-  for (const dependency of [
-    "better-sqlite3",
-    "node-pty",
-    "bindings",
-    "file-uri-to-path",
-    "node-addon-api",
-    "tslib"
-  ]) {
-    const source = path.join(nativeWorkspaceDir, "node_modules", dependency);
-    const target = path.join(stageAppDir, "node_modules", dependency);
-
-    await fs.rm(target, { recursive: true, force: true });
-    await copyRecursive(source, target);
-  }
-}
-
 async function normalizeStagePackage(stageAppDir, upstream, archiveOverride) {
   const packageJsonPath = path.join(stageAppDir, "package.json");
   const original = JSON.parse(await fs.readFile(packageJsonPath, "utf8"));
@@ -242,7 +216,99 @@ async function normalizeStagePackage(stageAppDir, upstream, archiveOverride) {
   };
 }
 
-async function buildLinuxDirectory(stageAppDir, outputDir, appCommand) {
+async function createLinuxIcon(stageDir, stageAppDir) {
+  const iconDir = path.join(stageDir, "build-resources");
+  const iconPath = path.join(iconDir, "icon.png");
+  const webviewAssetsDir = path.join(stageAppDir, "webview", "assets");
+  const assets = await fs.readdir(webviewAssetsDir);
+  const appIcon = assets
+    .filter(name => /^app-.*\.png$/i.test(name))
+    .sort()
+    .at(0);
+
+  if (!appIcon) {
+    throw new Error(`Unable to locate app icon under ${webviewAssetsDir}`);
+  }
+
+  await ensureDir(iconDir);
+  await fs.copyFile(path.join(webviewAssetsDir, appIcon), iconPath);
+
+  return iconPath;
+}
+
+async function hydrateNativeModules(stageDir, stageAppDir) {
+  const nativeWorkspaceDir = path.join(stageDir, "native-workspace");
+  const stagePackageJson = JSON.parse(
+    await fs.readFile(path.join(stageAppDir, "package.json"), "utf8")
+  );
+
+  await ensureEmptyDir(nativeWorkspaceDir);
+  await fs.writeFile(
+    path.join(nativeWorkspaceDir, "package.json"),
+    `${JSON.stringify(
+      {
+        name: "codex-app-linux-native-workspace",
+        private: true,
+        dependencies: {
+          "better-sqlite3": stagePackageJson.dependencies["better-sqlite3"],
+          "node-pty": stagePackageJson.dependencies["node-pty"],
+          bindings: "^1.5.0",
+          "file-uri-to-path": "^1.0.0",
+          "node-addon-api": "^8.5.0",
+          "prebuild-install": "^7.1.3",
+          tslib: "^2.8.1"
+        }
+      },
+      null,
+      2
+    )}\n`
+  );
+
+  await run(["npm", "install", "--no-package-lock"], { cwd: nativeWorkspaceDir });
+  await run(
+    [
+      "npx",
+      "--no-install",
+      "electron-rebuild",
+      "--version",
+      "40.0.0",
+      "--arch",
+      "x64",
+      "--module-dir",
+      nativeWorkspaceDir,
+      "--force",
+      "--only",
+      "better-sqlite3,node-pty"
+    ],
+    { cwd: nativeWorkspaceDir }
+  );
+
+  for (const dependency of [
+    "better-sqlite3",
+    "node-pty",
+    "bindings",
+    "file-uri-to-path",
+    "node-addon-api",
+    "prebuild-install",
+    "tslib"
+  ]) {
+    const source = path.join(nativeWorkspaceDir, "node_modules", dependency);
+    const target = path.join(stageAppDir, "node_modules", dependency);
+
+    await fs.rm(target, { recursive: true, force: true });
+    await copyRecursive(source, target);
+  }
+}
+
+async function buildLinuxArtifacts({
+  stageAppDir,
+  outputDir,
+  executableName,
+  productName,
+  desktopName,
+  appId,
+  linuxIconPath
+}) {
   await run(
     [
       "npx",
@@ -251,17 +317,54 @@ async function buildLinuxDirectory(stageAppDir, outputDir, appCommand) {
       "--config",
       "electron-builder.config.mjs",
       "--linux",
-      "dir"
+      "dir",
+      "AppImage"
     ],
     {
-    env: {
-      ...process.env,
-      CODEX_STAGE_APP_DIR: stageAppDir,
-      CODEX_OUTPUT_DIR: outputDir,
-      CODEX_APP_EXECUTABLE_NAME: appCommand
-    }
+      env: {
+        ...process.env,
+        CODEX_STAGE_APP_DIR: stageAppDir,
+        CODEX_OUTPUT_DIR: outputDir,
+        CODEX_APP_EXECUTABLE_NAME: executableName,
+        CODEX_PRODUCT_NAME: productName,
+        CODEX_DESKTOP_NAME: desktopName,
+        CODEX_APP_ID: appId,
+        CODEX_LINUX_ICON_PATH: linuxIconPath
+      }
     }
   );
+}
+
+async function renameAppImage(outputDir, targetName) {
+  const entries = await fs.readdir(outputDir);
+  const current = entries.find(name => name.endsWith(".AppImage"));
+
+  if (!current) {
+    throw new Error(`No AppImage produced in ${outputDir}`);
+  }
+
+  const source = path.join(outputDir, current);
+  const target = path.join(outputDir, targetName);
+
+  if (source !== target) {
+    await fs.rm(target, { force: true });
+    await fs.rename(source, target);
+  }
+
+  return target;
+}
+
+async function packDirectory(sourceDir, archivePath) {
+  await run(["tar", "-C", path.dirname(sourceDir), "-czf", archivePath, path.basename(sourceDir)]);
+}
+
+async function sha256File(filePath) {
+  const hash = crypto.createHash("sha256");
+  const file = await fs.readFile(filePath);
+
+  hash.update(file);
+
+  return hash.digest("hex");
 }
 
 async function assembleNpmPackage({
@@ -269,30 +372,42 @@ async function assembleNpmPackage({
   upstream,
   packageName,
   packageVersion,
-  appCommand,
-  linuxDir,
+  launcherCommand,
+  releaseRepo,
+  releaseTag,
+  appImageAssetName,
+  appImageSha256,
   targetDir
 }) {
   const packageDir = path.join(targetDir, "package");
-  const appDir = path.join(packageDir, "app");
   const binDir = path.join(packageDir, "bin");
 
   await ensureEmptyDir(packageDir);
-  await copyRecursive(linuxDir, appDir);
   await ensureDir(binDir);
 
   const packageJson = {
     name: packageName,
     version: packageVersion,
     private: false,
-    description: `${channel.displayName} desktop app for Linux. Requires an existing codex CLI on PATH.`,
+    description: `${channel.displayName} launcher for the Codex Linux AppImage. Requires an existing codex CLI on PATH.`,
     license: "UNLICENSED",
     os: ["linux"],
     cpu: ["x64"],
     bin: {
-      [appCommand]: "bin/codex-desktop.cjs"
+      [launcherCommand]: "bin/codex-app-linux.cjs"
     },
-    files: ["app", "bin", "README.md"],
+    files: ["bin", "README.md", "package.json"],
+    repository: {
+      type: "git",
+      url: `git+https://github.com/${releaseRepo}.git`
+    },
+    codexAppLinux: {
+      channel: channel.name,
+      releaseRepo,
+      releaseTag,
+      appImageAssetName,
+      appImageSha256
+    },
     publishConfig: {
       access: "public",
       tag: channel.distTag
@@ -303,57 +418,73 @@ async function assembleNpmPackage({
     path.join(packageDir, "package.json"),
     `${JSON.stringify(packageJson, null, 2)}\n`
   );
-
   await fs.writeFile(
-    path.join(binDir, "codex-desktop.cjs"),
-    wrapperScript(appCommand),
+    path.join(binDir, "codex-app-linux.cjs"),
+    launcherScript(launcherCommand),
     { mode: 0o755 }
   );
-
   await fs.writeFile(
     path.join(packageDir, "README.md"),
-    packageReadme({
+    launcherReadme({
       packageName,
-      appCommand,
+      launcherCommand,
       channelName: channel.name,
-      upstream
+      upstream,
+      releaseRepo,
+      releaseTag,
+      appImageAssetName
     })
   );
 
   return packageDir;
 }
 
-function wrapperScript(appCommand) {
+function launcherScript(launcherCommand) {
   return `#!/usr/bin/env node
+const crypto = require("node:crypto");
 const fs = require("node:fs");
+const fsp = require("node:fs/promises");
+const os = require("node:os");
 const path = require("node:path");
 const { spawn, spawnSync } = require("node:child_process");
+const { pipeline } = require("node:stream/promises");
 
-const appExecutable = path.join(__dirname, "..", "app", "${appCommand}");
-const resolvedCodex = resolveCodexCliPath();
+const packageJson = require("../package.json");
+const metadata = packageJson.codexAppLinux;
 
-if (!resolvedCodex) {
-  console.error("codex-app-linux: CODEX_CLI_PATH is not set and 'which codex' returned nothing.");
-  console.error("Set CODEX_CLI_PATH explicitly or install 'codex' on PATH.");
+main().catch(error => {
+  console.error("codex-app-linux:", error instanceof Error ? error.message : String(error));
   process.exit(1);
+});
+
+async function main() {
+  const resolvedCodex = resolveCodexCliPath();
+
+  if (!resolvedCodex) {
+    console.error("codex-app-linux: CODEX_CLI_PATH is not set and 'which codex' returned nothing.");
+    console.error("Set CODEX_CLI_PATH explicitly or install 'codex' on PATH.");
+    process.exit(1);
+  }
+
+  const appImagePath = await resolveAppImagePath();
+  const child = spawn(appImagePath, process.argv.slice(2), {
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      CODEX_CLI_PATH: resolvedCodex,
+      APPIMAGE_EXTRACT_AND_RUN: process.env.APPIMAGE_EXTRACT_AND_RUN || "1"
+    }
+  });
+
+  child.on("exit", (code, signal) => {
+    if (signal) {
+      process.kill(process.pid, signal);
+      return;
+    }
+
+    process.exit(code ?? 0);
+  });
 }
-
-const child = spawn(appExecutable, process.argv.slice(2), {
-  stdio: "inherit",
-  env: {
-    ...process.env,
-    CODEX_CLI_PATH: resolvedCodex
-  }
-});
-
-child.on("exit", (code, signal) => {
-  if (signal) {
-    process.kill(process.pid, signal);
-    return;
-  }
-
-  process.exit(code ?? 0);
-});
 
 function resolveCodexCliPath() {
   if (isExecutable(process.env.CODEX_CLI_PATH)) {
@@ -372,6 +503,67 @@ function resolveCodexCliPath() {
   return null;
 }
 
+async function resolveAppImagePath() {
+  const overridePath = process.env.CODEX_APP_LINUX_APPIMAGE_PATH;
+
+  if (isExecutable(overridePath)) {
+    return overridePath;
+  }
+
+  const cacheRoot =
+    process.env.CODEX_APP_LINUX_CACHE_DIR ||
+    process.env.XDG_CACHE_HOME ||
+    path.join(os.homedir(), ".cache");
+  const cacheDir = path.join(cacheRoot, packageJson.name, packageJson.version);
+  const targetPath = path.join(cacheDir, metadata.appImageAssetName);
+
+  await fsp.mkdir(cacheDir, { recursive: true });
+
+  if (await matchesChecksum(targetPath, metadata.appImageSha256)) {
+    return targetPath;
+  }
+
+  const downloadUrl = process.env.CODEX_APP_LINUX_RELEASE_BASE_URL
+    ? joinUrl(process.env.CODEX_APP_LINUX_RELEASE_BASE_URL, metadata.appImageAssetName)
+    : \`https://github.com/\${metadata.releaseRepo}/releases/download/\${metadata.releaseTag}/\${metadata.appImageAssetName}\`;
+
+  console.error(\`codex-app-linux: downloading \${metadata.appImageAssetName}\`);
+
+  const tempPath = \`\${targetPath}.download\`;
+  const response = await fetch(downloadUrl);
+
+  if (!response.ok || !response.body) {
+    throw new Error(\`failed to download AppImage: \${response.status} \${response.statusText}\`);
+  }
+
+  await pipeline(response.body, fs.createWriteStream(tempPath));
+
+  if (!(await matchesChecksum(tempPath, metadata.appImageSha256))) {
+    await fsp.rm(tempPath, { force: true });
+    throw new Error("downloaded AppImage checksum mismatch");
+  }
+
+  await fsp.rename(tempPath, targetPath);
+  await fsp.chmod(targetPath, 0o755);
+
+  return targetPath;
+}
+
+async function matchesChecksum(filePath, expected) {
+  if (!expected) {
+    return isExecutable(filePath);
+  }
+
+  try {
+    const hash = crypto.createHash("sha256");
+    const file = await fsp.readFile(filePath);
+    hash.update(file);
+    return hash.digest("hex") === expected;
+  } catch {
+    return false;
+  }
+}
+
 function isExecutable(candidate) {
   if (!candidate) {
     return false;
@@ -384,32 +576,44 @@ function isExecutable(candidate) {
     return false;
   }
 }
+
+function joinUrl(base, assetName) {
+  return \`\${String(base).replace(/\\/$/, "")}/\${assetName}\`;
+}
 `;
 }
 
-function packageReadme({ packageName, appCommand, channelName, upstream }) {
+function launcherReadme({
+  packageName,
+  launcherCommand,
+  channelName,
+  upstream,
+  releaseRepo,
+  releaseTag,
+  appImageAssetName
+}) {
   return `# ${packageName}
 
-Linux repack of the upstream Codex desktop app.
+Thin launcher for the Codex Linux AppImage.
 
 - Channel: \`${channelName}\`
 - Upstream desktop version: \`${upstream.version}\`
 - Upstream build number: \`${upstream.buildNumber}\`
-- Upstream archive: \`${upstream.archiveUrl}\`
+- GitHub release: \`${releaseTag}\`
+- AppImage asset: \`${appImageAssetName}\`
+- Release repo: \`${releaseRepo}\`
+
+## Behavior
+
+1. uses existing \`CODEX_CLI_PATH\` if set
+2. otherwise resolves \`which codex\`
+3. downloads the AppImage from GitHub Releases into cache on first run
+4. launches the AppImage with \`CODEX_CLI_PATH\` exported
 
 ## Usage
 
-This package does not install the Codex CLI for you.
-
-Expected setup:
-
-1. \`codex\` already installed on your machine.
-2. \`codex\` available on \`PATH\`.
-
-Then run:
-
 \`\`\`bash
-${appCommand}
+${launcherCommand}
 \`\`\`
 `;
 }
@@ -444,7 +648,6 @@ async function run(command, options = {}) {
       child.stdout.on("data", chunk => {
         stdout += chunk.toString();
       });
-
       child.stderr.on("data", chunk => {
         stderr += chunk.toString();
       });

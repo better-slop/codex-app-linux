@@ -18,10 +18,12 @@ jobs:
       matrix:
         channel: [prod, beta]
     permissions:
-      contents: read
+      contents: write
+      id-token: write
     env:
       NPM_CONFIG_PROVENANCE: "true"
-      NPM_PACKAGE_NAME: "@cau1k/codex-app-linux"
+      NPM_PACKAGE_NAME: "codex-app-linux"
+      CODEX_RELEASE_REPO: "${{ github.repository }}"
     steps:
       - uses: actions/checkout@v5
 
@@ -32,14 +34,12 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y p7zip-full
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full jq libarchive-tools
 
       - name: Install repo deps
         run: npm ci
 
-      - name: Publish channel
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Build channel
         run: |
           extra_args=""
           if [ "${{ github.event.inputs.force || 'false' }}" = "true" ]; then
@@ -47,5 +47,61 @@ jobs:
           fi
           node scripts/release-channel.mjs \
             --channel "${{ matrix.channel }}" \
-            --publish \
+            --json-output "dist/${{ matrix.channel }}-release.json" \
             $extra_args
+
+      - name: Read build metadata
+        id: meta
+        run: |
+          json="dist/${{ matrix.channel }}-release.json"
+          echo "skipped=$(jq -r '.skipped // false' "$json")" >> "$GITHUB_OUTPUT"
+          echo "package_dir=$(jq -r '.packageDir // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "appimage=$(jq -r '.appImagePath // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "tarball=$(jq -r '.unpackedTarballPath // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "checksums=$(jq -r '.checksumsPath // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$(jq -r '.releaseTag // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "package_version=$(jq -r '.packageVersion' "$json")" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$(jq -r '.prerelease // false' "$json")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifacts
+        if: steps.meta.outputs.skipped != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.channel }}-${{ steps.meta.outputs.package_version }}
+          path: |
+            ${{ steps.meta.outputs.appimage }}
+            ${{ steps.meta.outputs.tarball }}
+            ${{ steps.meta.outputs.checksums }}
+
+      - name: Create or update GitHub release
+        if: steps.meta.outputs.skipped != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh release view "${{ steps.meta.outputs.release_tag }}" >/dev/null 2>&1; then
+            prerelease_flag=""
+            if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then
+              prerelease_flag="--prerelease"
+            fi
+            gh release create "${{ steps.meta.outputs.release_tag }}" \
+              --title "${{ steps.meta.outputs.release_tag }}" \
+              $prerelease_flag \
+              --notes "Automated Linux release for ${{ matrix.channel }}"
+          fi
+
+          gh release upload "${{ steps.meta.outputs.release_tag }}" \
+            "${{ steps.meta.outputs.appimage }}" \
+            "${{ steps.meta.outputs.tarball }}" \
+            "${{ steps.meta.outputs.checksums }}" \
+            --clobber
+
+      - name: Publish npm package
+        if: steps.meta.outputs.skipped != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm_tag="beta"
+          if [ "${{ matrix.channel }}" = "prod" ]; then
+            npm_tag="latest"
+          fi
+          npm publish "${{ steps.meta.outputs.package_dir }}" --access public --tag "$npm_tag"
