@@ -8,10 +8,45 @@ on:
         required: false
         default: "false"
   schedule:
-    - cron: "0 0,12 * * *"
+    - cron: "0 0,5,10,15,20 * * *"
 
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      prod_outdated: ${{ steps.state.outputs.prod_outdated }}
+      beta_outdated: ${{ steps.state.outputs.beta_outdated }}
+      prod_version: ${{ steps.state.outputs.prod_version }}
+      beta_version: ${{ steps.state.outputs.beta_version }}
+    env:
+      NPM_PACKAGE_NAME: "codex-app-linux"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Check release state
+        id: state
+        run: |
+          node scripts/check-release-state.mjs \
+            --package-name "${NPM_PACKAGE_NAME}" \
+            --force "${{ github.event.inputs.force || 'false' }}" \
+            --json-output "dist/release-state.json"
+
+          echo "prod_outdated=$(jq -r '.channels.prod.outdated' dist/release-state.json)" >> "$GITHUB_OUTPUT"
+          echo "beta_outdated=$(jq -r '.channels.beta.outdated' dist/release-state.json)" >> "$GITHUB_OUTPUT"
+          echo "prod_version=$(jq -r '.channels.prod.packageVersion' dist/release-state.json)" >> "$GITHUB_OUTPUT"
+          echo "beta_version=$(jq -r '.channels.beta.packageVersion' dist/release-state.json)" >> "$GITHUB_OUTPUT"
+
   publish:
+    needs: preflight
+    if: >
+      github.event.inputs.force == 'true' ||
+      (matrix.channel == 'prod' && needs.preflight.outputs.prod_outdated == 'true') ||
+      (matrix.channel == 'beta' && needs.preflight.outputs.beta_outdated == 'true')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

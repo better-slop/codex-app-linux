@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { parseAppcastXml } from "../scripts/lib/appcast.mjs";
 import { npmVersionFor } from "../scripts/lib/config.mjs";
+import { summarizeChannelReleaseState } from "../scripts/lib/release-state.mjs";
 
 test("parseAppcastXml reads the latest enclosure", () => {
   const xml = `<?xml version="1.0" standalone="yes"?>
@@ -37,4 +38,36 @@ test("npmVersionFor keeps prod clean and beta prerelease-tagged", () => {
 
   assert.equal(npmVersionFor("prod", upstream), "26.313.41514");
   assert.equal(npmVersionFor("beta", upstream), "26.313.41514-beta.1041");
+});
+
+test("summarizeChannelReleaseState flags outdated versions", () => {
+  assert.deepEqual(
+    summarizeChannelReleaseState({
+      channel: { name: "beta", distTag: "beta" },
+      packageVersion: "26.313.41514-beta.1041",
+      publishedVersion: null
+    }),
+    {
+      channel: "beta",
+      distTag: "beta",
+      packageVersion: "26.313.41514-beta.1041",
+      publishedVersion: null,
+      outdated: true
+    }
+  );
+
+  assert.deepEqual(
+    summarizeChannelReleaseState({
+      channel: { name: "prod", distTag: "latest" },
+      packageVersion: "26.313.41514",
+      publishedVersion: "26.313.41514"
+    }),
+    {
+      channel: "prod",
+      distTag: "latest",
+      packageVersion: "26.313.41514",
+      publishedVersion: "26.313.41514",
+      outdated: false
+    }
+  );
 });
