@@ -97,11 +97,9 @@ jobs:
 
       - name: Publish npm package
         if: steps.meta.outputs.skipped != 'true'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           npm_tag="beta"
           if [ "${{ matrix.channel }}" = "prod" ]; then
             npm_tag="latest"
           fi
-          npm publish "${{ steps.meta.outputs.package_dir }}" --access public --tag "$npm_tag"
+          npm publish "${{ steps.meta.outputs.package_dir }}" --provenance --access public --tag "$npm_tag"

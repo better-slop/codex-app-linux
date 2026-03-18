@@ -316,6 +316,8 @@ async function buildLinuxArtifacts({
       "electron-builder",
       "--config",
       "electron-builder.config.mjs",
+      "--publish",
+      "never",
       "--linux",
       "dir",
       "AppImage"
