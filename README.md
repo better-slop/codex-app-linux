@@ -5,7 +5,7 @@ Run the Codex desktop app on Linux via npm.
 `codex-app-linux` is a thin launcher:
 
 - expects `codex` CLI to already be installed
-- downloads the matching Linux AppImage on first run
+- downloads the matching Linux desktop binary archive on first run
 - launches the desktop app with `CODEX_CLI_PATH` wired up
 
 ## Quick Start
@@ -80,15 +80,16 @@ npm:
 
 - publishes `codex-app-linux`
 - acts as a thin launcher
-- downloads the matching `AppImage` from GitHub Releases on first run
+- downloads the matching `linux-unpacked` tarball from GitHub Releases on first run
 
 Launcher behavior:
 
 - uses existing `CODEX_CLI_PATH` if set
 - otherwise sets `CODEX_CLI_PATH` from `which codex`
 - errors if neither is available
-- sets `APPIMAGE_EXTRACT_AND_RUN=1` by default for broader compatibility
-- AppImage and `linux-unpacked` binaries also perform the same `codex` lookup at launch
+- extracts `linux-unpacked` into cache on first run
+- npm launches the unpacked binary directly
+- AppImage and `linux-unpacked` release binaries also perform the same `codex` lookup at launch
 
 ## GitHub Actions
 

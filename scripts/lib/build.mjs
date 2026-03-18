@@ -98,8 +98,9 @@ export async function buildChannel({
     launcherCommand,
     releaseRepo,
     releaseTag,
-    appImageAssetName: path.basename(appImagePath),
-    appImageSha256,
+    executableName: channel.executableName,
+    unpackedTarballAssetName: path.basename(unpackedTarballPath),
+    unpackedTarballSha256,
     targetDir: paths.npmDir
   });
 
@@ -377,8 +378,9 @@ async function assembleNpmPackage({
   launcherCommand,
   releaseRepo,
   releaseTag,
-  appImageAssetName,
-  appImageSha256,
+  executableName,
+  unpackedTarballAssetName,
+  unpackedTarballSha256,
   targetDir
 }) {
   const packageDir = path.join(targetDir, "package");
@@ -391,7 +393,7 @@ async function assembleNpmPackage({
     name: packageName,
     version: packageVersion,
     private: false,
-    description: `${channel.displayName} launcher for the Codex Linux AppImage. Requires an existing codex CLI on PATH.`,
+    description: `${channel.displayName} launcher for the Codex Linux desktop app. Requires an existing codex CLI on PATH.`,
     license: "UNLICENSED",
     os: ["linux"],
     cpu: ["x64"],
@@ -407,8 +409,9 @@ async function assembleNpmPackage({
       channel: channel.name,
       releaseRepo,
       releaseTag,
-      appImageAssetName,
-      appImageSha256
+      executableName,
+      unpackedTarballAssetName,
+      unpackedTarballSha256
     },
     publishConfig: {
       access: "public",
@@ -434,7 +437,8 @@ async function assembleNpmPackage({
       upstream,
       releaseRepo,
       releaseTag,
-      appImageAssetName
+      executableName,
+      unpackedTarballAssetName
     })
   );
 
@@ -468,13 +472,12 @@ async function main() {
     process.exit(1);
   }
 
-  const appImagePath = await resolveAppImagePath();
-  const child = spawn(appImagePath, process.argv.slice(2), {
+  const binaryPath = await resolveBinaryPath();
+  const child = spawn(binaryPath, process.argv.slice(2), {
     stdio: "inherit",
     env: {
       ...process.env,
-      CODEX_CLI_PATH: resolvedCodex,
-      APPIMAGE_EXTRACT_AND_RUN: process.env.APPIMAGE_EXTRACT_AND_RUN || "1"
+      CODEX_CLI_PATH: resolvedCodex
     }
   });
 
@@ -505,8 +508,8 @@ function resolveCodexCliPath() {
   return null;
 }
 
-async function resolveAppImagePath() {
-  const overridePath = process.env.CODEX_APP_LINUX_APPIMAGE_PATH;
+async function resolveBinaryPath() {
+  const overridePath = process.env.CODEX_APP_LINUX_BINARY_PATH;
 
   if (isExecutable(overridePath)) {
     return overridePath;
@@ -517,38 +520,48 @@ async function resolveAppImagePath() {
     process.env.XDG_CACHE_HOME ||
     path.join(os.homedir(), ".cache");
   const cacheDir = path.join(cacheRoot, packageJson.name, packageJson.version);
-  const targetPath = path.join(cacheDir, metadata.appImageAssetName);
+  const archivePath = path.join(cacheDir, metadata.unpackedTarballAssetName);
+  const extractRoot = path.join(cacheDir, "linux-unpacked");
+  const binaryPath = path.join(extractRoot, metadata.executableName);
 
   await fsp.mkdir(cacheDir, { recursive: true });
 
-  if (await matchesChecksum(targetPath, metadata.appImageSha256)) {
-    return targetPath;
+  if (
+    isExecutable(binaryPath) &&
+    (await matchesChecksum(archivePath, metadata.unpackedTarballSha256))
+  ) {
+    return binaryPath;
   }
 
   const downloadUrl = process.env.CODEX_APP_LINUX_RELEASE_BASE_URL
-    ? joinUrl(process.env.CODEX_APP_LINUX_RELEASE_BASE_URL, metadata.appImageAssetName)
-    : \`https://github.com/\${metadata.releaseRepo}/releases/download/\${metadata.releaseTag}/\${metadata.appImageAssetName}\`;
+    ? joinUrl(process.env.CODEX_APP_LINUX_RELEASE_BASE_URL, metadata.unpackedTarballAssetName)
+    : \`https://github.com/\${metadata.releaseRepo}/releases/download/\${metadata.releaseTag}/\${metadata.unpackedTarballAssetName}\`;
 
-  console.error(\`codex-app-linux: downloading \${metadata.appImageAssetName}\`);
+  console.error(\`codex-app-linux: downloading \${metadata.unpackedTarballAssetName}\`);
 
-  const tempPath = \`\${targetPath}.download\`;
+  const tempPath = \`\${archivePath}.download\`;
   const response = await fetch(downloadUrl);
 
   if (!response.ok || !response.body) {
-    throw new Error(\`failed to download AppImage: \${response.status} \${response.statusText}\`);
+    throw new Error(\`failed to download desktop binary archive: \${response.status} \${response.statusText}\`);
   }
 
   await pipeline(response.body, fs.createWriteStream(tempPath));
 
-  if (!(await matchesChecksum(tempPath, metadata.appImageSha256))) {
+  if (!(await matchesChecksum(tempPath, metadata.unpackedTarballSha256))) {
     await fsp.rm(tempPath, { force: true });
-    throw new Error("downloaded AppImage checksum mismatch");
+    throw new Error("downloaded desktop binary archive checksum mismatch");
   }
 
-  await fsp.rename(tempPath, targetPath);
-  await fsp.chmod(targetPath, 0o755);
+  await fsp.rename(tempPath, archivePath);
+  await fsp.rm(extractRoot, { recursive: true, force: true });
+  await extractTarball(archivePath, cacheDir);
 
-  return targetPath;
+  if (!isExecutable(binaryPath)) {
+    throw new Error(\`downloaded archive did not contain executable \${metadata.executableName}\`);
+  }
+
+  return binaryPath;
 }
 
 async function matchesChecksum(filePath, expected) {
@@ -582,6 +595,24 @@ function isExecutable(candidate) {
 function joinUrl(base, assetName) {
   return \`\${String(base).replace(/\\/$/, "")}/\${assetName}\`;
 }
+
+async function extractTarball(archivePath, targetDir) {
+  await new Promise((resolve, reject) => {
+    const child = spawn("tar", ["-xzf", archivePath, "-C", targetDir], {
+      stdio: "inherit"
+    });
+
+    child.on("error", reject);
+    child.on("exit", code => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(\`tar extraction failed: \${code}\`));
+    });
+  });
+}
 `;
 }
 
@@ -592,25 +623,28 @@ function launcherReadme({
   upstream,
   releaseRepo,
   releaseTag,
-  appImageAssetName
+  executableName,
+  unpackedTarballAssetName
 }) {
   return `# ${packageName}
 
-Thin launcher for the Codex Linux AppImage.
+Thin launcher for the Codex Linux desktop app.
 
 - Channel: \`${channelName}\`
 - Upstream desktop version: \`${upstream.version}\`
 - Upstream build number: \`${upstream.buildNumber}\`
 - GitHub release: \`${releaseTag}\`
-- AppImage asset: \`${appImageAssetName}\`
+- Linux archive asset: \`${unpackedTarballAssetName}\`
+- Executable: \`${executableName}\`
 - Release repo: \`${releaseRepo}\`
 
 ## Behavior
 
 1. uses existing \`CODEX_CLI_PATH\` if set
 2. otherwise resolves \`which codex\`
-3. downloads the AppImage from GitHub Releases into cache on first run
-4. launches the AppImage with \`CODEX_CLI_PATH\` exported
+3. downloads the Linux unpacked binary archive from GitHub Releases into cache on first run
+4. extracts \`linux-unpacked\`
+5. launches the packaged executable with \`CODEX_CLI_PATH\` exported
 
 ## Usage
 
