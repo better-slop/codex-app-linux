@@ -8,7 +8,8 @@ on:
         required: false
         default: "false"
   schedule:
-    - cron: "0 0,5,10,15,20 * * *"
+    # Pacific daylight target times: 1am, 9am, 12pm, 3pm, 5pm, 7pm, 10pm.
+    - cron: "0 0,2,5,8,16,19,22 * * *"
 
 jobs:
   preflight:

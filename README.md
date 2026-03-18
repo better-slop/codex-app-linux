@@ -1,16 +1,58 @@
 # codex-app-linux
 
-Build/publish repo for the Linux Codex desktop release flow.
+Run the Codex desktop app on Linux via npm.
 
-Current shape:
+`codex-app-linux` is a thin launcher:
 
-- tracks upstream desktop appcast feeds for `prod` and `beta`
-- rebuilds the upstream desktop app for Linux x64
+- expects `codex` CLI to already be installed
+- downloads the matching Linux AppImage on first run
+- launches the desktop app with `CODEX_CLI_PATH` wired up
+
+## Quick Start
+
+Install globally:
+
+```bash
+npm i -g codex-app-linux
+codex-app-linux
+```
+
+Run once with `npx`:
+
+```bash
+npx codex-app-linux
+```
+
+Beta channel:
+
+```bash
+npm i -g codex-app-linux@beta
+codex-app-linux
+```
+
+```bash
+npx codex-app-linux@beta
+```
+
+## Requirements
+
+- Linux x64
+- `codex` on `PATH`
+- GitHub access not required for normal app launch
+
+If `CODEX_CLI_PATH` is already set, the launcher uses it.
+Otherwise it falls back to `which codex`.
+
+## What This Repo Does
+
+This repo builds and publishes the Linux release pipeline for Codex desktop:
+
+- tracks upstream `prod` and `beta` appcast feeds
+- rebuilds the upstream app for Linux x64
 - emits `linux-unpacked` and `AppImage`
-- publishes a thin npm launcher package
-- expects users to already have `codex` installed
+- publishes `codex-app-linux` on npm
 
-## Commands
+## Repo Commands
 
 ```bash
 npm test
@@ -52,7 +94,7 @@ Launcher behavior:
 
 Workflow: `.github/workflows/release.yml`
 
-- scheduled twice daily
+- scheduled 7 times daily
 - checks both upstream channels
 - builds `linux-unpacked` and `AppImage`
 - creates/releases tagged GitHub assets
