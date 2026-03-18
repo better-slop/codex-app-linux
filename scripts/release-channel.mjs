@@ -9,6 +9,7 @@ import {
   defaultPackageName,
   defaultReleaseRepo,
   getChannel,
+  npmVersionFor,
   parseArgs
 } from "./lib/config.mjs";
 
@@ -31,10 +32,7 @@ const jsonOutputPath = args["json-output"]
   : null;
 
 const upstream = await fetchAppcastMetadata(channel.appcastUrl);
-const packageVersion =
-  channel.name === "prod"
-    ? upstream.version
-    : `${upstream.version}-beta.${upstream.buildNumber}`;
+const packageVersion = npmVersionFor(channel.name, upstream);
 
 if (!force && !archiveOverride) {
   const alreadyPublished = await npmVersionExists(packageName, packageVersion);
@@ -49,6 +47,7 @@ if (!force && !archiveOverride) {
     };
 
     if (jsonOutputPath) {
+      await fs.mkdir(path.dirname(jsonOutputPath), { recursive: true });
       await fs.writeFile(jsonOutputPath, `${JSON.stringify(summary, null, 2)}\n`);
     }
 
@@ -86,6 +85,7 @@ const summary = {
 };
 
 if (jsonOutputPath) {
+  await fs.mkdir(path.dirname(jsonOutputPath), { recursive: true });
   await fs.writeFile(jsonOutputPath, `${JSON.stringify(summary, null, 2)}\n`);
 }
 
