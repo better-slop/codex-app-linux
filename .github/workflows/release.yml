@@ -98,6 +98,11 @@ jobs:
       - name: Publish npm package
         if: steps.meta.outputs.skipped != 'true'
         run: |
+          if npm view "codex-app-linux@${{ steps.meta.outputs.package_version }}" version >/dev/null 2>&1; then
+            echo "npm package version already exists; skipping publish"
+            exit 0
+          fi
+
           npm_tag="beta"
           if [ "${{ matrix.channel }}" = "prod" ]; then
             npm_tag="latest"
