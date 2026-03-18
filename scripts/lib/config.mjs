@@ -11,6 +11,9 @@ export const defaultLauncherCommand =
   process.env.CODEX_APP_COMMAND || "codex-app-linux";
 export const defaultReleaseRepo =
   process.env.CODEX_RELEASE_REPO || "cau1k/codex-app-linux";
+export const defaultPackageRevision = Number(
+  process.env.CODEX_PACKAGE_REVISION || "1"
+);
 
 export const channels = {
   prod: {
@@ -41,12 +44,29 @@ export function getChannel(name) {
   return { name, ...channel };
 }
 
-export function npmVersionFor(channelName, upstream) {
-  if (channelName === "prod") {
-    return upstream.version;
+export function npmVersionFor(
+  channelName,
+  upstream,
+  packageRevision = defaultPackageRevision
+) {
+  const baseVersion =
+    channelName === "prod"
+      ? upstream.version
+      : `${upstream.version}-beta.${upstream.buildNumber}`;
+
+  if (!Number.isInteger(packageRevision) || packageRevision < 0) {
+    throw new Error(`Invalid CODEX_PACKAGE_REVISION: ${packageRevision}`);
   }
 
-  return `${upstream.version}-beta.${upstream.buildNumber}`;
+  if (packageRevision === 0) {
+    return baseVersion;
+  }
+
+  if (channelName === "prod") {
+    return `${baseVersion}-launcher.${packageRevision}`;
+  }
+
+  return `${baseVersion}.launcher.${packageRevision}`;
 }
 
 export function releaseTagForVersion(version) {
