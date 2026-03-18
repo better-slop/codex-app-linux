@@ -53,6 +53,7 @@ jobs:
       NPM_CONFIG_PROVENANCE: "true"
       NPM_PACKAGE_NAME: "codex-app-linux"
       CODEX_RELEASE_REPO: "${{ github.repository }}"
+      AUR_PUBLISH_ENABLED: "${{ vars.AUR_PUBLISH_ENABLED || '' }}"
     steps:
       - uses: actions/checkout@v5
 
@@ -87,10 +88,25 @@ jobs:
           echo "package_dir=$(jq -r '.packageDir // ""' "$json")" >> "$GITHUB_OUTPUT"
           echo "appimage=$(jq -r '.appImagePath // ""' "$json")" >> "$GITHUB_OUTPUT"
           echo "tarball=$(jq -r '.unpackedTarballPath // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "icon=$(jq -r '.iconAssetPath // ""' "$json")" >> "$GITHUB_OUTPUT"
           echo "checksums=$(jq -r '.checksumsPath // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "pkgbuild=$(jq -r '.aurPackage.pkgbuildPath // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "srcinfo=$(jq -r '.aurPackage.srcinfoPath // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "install_script=$(jq -r '.aurPackage.installPath // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "aur_package_name=$(jq -r '.aurPackage.pkgname // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "aur_url=$(jq -r '.aurPackage.aurUrl // ""' "$json")" >> "$GITHUB_OUTPUT"
           echo "release_tag=$(jq -r '.releaseTag // ""' "$json")" >> "$GITHUB_OUTPUT"
           echo "package_version=$(jq -r '.packageVersion' "$json")" >> "$GITHUB_OUTPUT"
           echo "prerelease=$(jq -r '.prerelease // false' "$json")" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        if: steps.meta.outputs.skipped != 'true'
+        run: |
+          node scripts/release-notes.mjs \
+            --channel "prod" \
+            --package-version "${{ steps.meta.outputs.package_version }}" \
+            --aur-package-name "${{ steps.meta.outputs.aur_package_name }}" \
+            > dist/prod-release-notes.md
 
       - name: Upload workflow artifacts
         if: steps.meta.outputs.skipped != 'true'
@@ -100,7 +116,11 @@ jobs:
           path: |
             ${{ steps.meta.outputs.appimage }}
             ${{ steps.meta.outputs.tarball }}
+            ${{ steps.meta.outputs.icon }}
             ${{ steps.meta.outputs.checksums }}
+            ${{ steps.meta.outputs.pkgbuild }}
+            ${{ steps.meta.outputs.srcinfo }}
+            ${{ steps.meta.outputs.install_script }}
 
       - name: Create or update GitHub release
         if: steps.meta.outputs.skipped != 'true'
@@ -115,12 +135,16 @@ jobs:
             gh release create "${{ steps.meta.outputs.release_tag }}" \
               --title "${{ steps.meta.outputs.release_tag }}" \
               $prerelease_flag \
-              --notes "Automated Linux release for prod"
+              --notes-file dist/prod-release-notes.md
           fi
+
+          gh release edit "${{ steps.meta.outputs.release_tag }}" \
+            --notes-file dist/prod-release-notes.md
 
           gh release upload "${{ steps.meta.outputs.release_tag }}" \
             "${{ steps.meta.outputs.appimage }}" \
             "${{ steps.meta.outputs.tarball }}" \
+            "${{ steps.meta.outputs.icon }}" \
             "${{ steps.meta.outputs.checksums }}" \
             --clobber
 
@@ -134,6 +158,44 @@ jobs:
 
           npm publish "${{ steps.meta.outputs.package_dir }}" --provenance --access public --tag latest
 
+      - name: Publish AUR package
+        if: steps.meta.outputs.skipped != 'true'
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [ "${AUR_PUBLISH_ENABLED}" != "true" ]; then
+            echo "AUR publish not enabled; skipping"
+            exit 0
+          fi
+
+          if [ -z "${AUR_SSH_PRIVATE_KEY}" ]; then
+            echo "AUR SSH key missing; skipping"
+            exit 0
+          fi
+
+          install -dm700 ~/.ssh
+          printf '%s\n' "${AUR_SSH_PRIVATE_KEY}" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o IdentitiesOnly=yes"
+          git clone "ssh://aur@aur.archlinux.org/${{ steps.meta.outputs.aur_package_name }}.git" aur-prod
+          cp "${{ steps.meta.outputs.pkgbuild }}" aur-prod/PKGBUILD
+          cp "${{ steps.meta.outputs.srcinfo }}" aur-prod/.SRCINFO
+          cp "${{ steps.meta.outputs.install_script }}" "aur-prod/${{ steps.meta.outputs.aur_package_name }}.install"
+
+          git -C aur-prod config user.name "codex-app-linux bot"
+          git -C aur-prod config user.email "zero@composer.group"
+          git -C aur-prod add PKGBUILD .SRCINFO "${{ steps.meta.outputs.aur_package_name }}.install"
+
+          if git -C aur-prod diff --cached --quiet; then
+            echo "AUR package already current; skipping"
+            exit 0
+          fi
+
+          git -C aur-prod commit -m "Update to ${{ steps.meta.outputs.package_version }}"
+          git -C aur-prod push origin HEAD
+
   publish-beta:
     needs: preflight
     if: github.event.inputs.force == 'true' || needs.preflight.outputs.beta_outdated == 'true'
@@ -145,6 +207,7 @@ jobs:
       NPM_CONFIG_PROVENANCE: "true"
       NPM_PACKAGE_NAME: "codex-app-linux"
       CODEX_RELEASE_REPO: "${{ github.repository }}"
+      AUR_PUBLISH_ENABLED: "${{ vars.AUR_PUBLISH_ENABLED || '' }}"
     steps:
       - uses: actions/checkout@v5
 
@@ -179,10 +242,25 @@ jobs:
           echo "package_dir=$(jq -r '.packageDir // ""' "$json")" >> "$GITHUB_OUTPUT"
           echo "appimage=$(jq -r '.appImagePath // ""' "$json")" >> "$GITHUB_OUTPUT"
           echo "tarball=$(jq -r '.unpackedTarballPath // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "icon=$(jq -r '.iconAssetPath // ""' "$json")" >> "$GITHUB_OUTPUT"
           echo "checksums=$(jq -r '.checksumsPath // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "pkgbuild=$(jq -r '.aurPackage.pkgbuildPath // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "srcinfo=$(jq -r '.aurPackage.srcinfoPath // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "install_script=$(jq -r '.aurPackage.installPath // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "aur_package_name=$(jq -r '.aurPackage.pkgname // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "aur_url=$(jq -r '.aurPackage.aurUrl // ""' "$json")" >> "$GITHUB_OUTPUT"
           echo "release_tag=$(jq -r '.releaseTag // ""' "$json")" >> "$GITHUB_OUTPUT"
           echo "package_version=$(jq -r '.packageVersion' "$json")" >> "$GITHUB_OUTPUT"
           echo "prerelease=$(jq -r '.prerelease // false' "$json")" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        if: steps.meta.outputs.skipped != 'true'
+        run: |
+          node scripts/release-notes.mjs \
+            --channel "beta" \
+            --package-version "${{ steps.meta.outputs.package_version }}" \
+            --aur-package-name "${{ steps.meta.outputs.aur_package_name }}" \
+            > dist/beta-release-notes.md
 
       - name: Upload workflow artifacts
         if: steps.meta.outputs.skipped != 'true'
@@ -192,7 +270,11 @@ jobs:
           path: |
             ${{ steps.meta.outputs.appimage }}
             ${{ steps.meta.outputs.tarball }}
+            ${{ steps.meta.outputs.icon }}
             ${{ steps.meta.outputs.checksums }}
+            ${{ steps.meta.outputs.pkgbuild }}
+            ${{ steps.meta.outputs.srcinfo }}
+            ${{ steps.meta.outputs.install_script }}
 
       - name: Create or update GitHub release
         if: steps.meta.outputs.skipped != 'true'
@@ -207,12 +289,16 @@ jobs:
             gh release create "${{ steps.meta.outputs.release_tag }}" \
               --title "${{ steps.meta.outputs.release_tag }}" \
               $prerelease_flag \
-              --notes "Automated Linux release for beta"
+              --notes-file dist/beta-release-notes.md
           fi
+
+          gh release edit "${{ steps.meta.outputs.release_tag }}" \
+            --notes-file dist/beta-release-notes.md
 
           gh release upload "${{ steps.meta.outputs.release_tag }}" \
             "${{ steps.meta.outputs.appimage }}" \
             "${{ steps.meta.outputs.tarball }}" \
+            "${{ steps.meta.outputs.icon }}" \
             "${{ steps.meta.outputs.checksums }}" \
             --clobber
 
@@ -225,3 +311,41 @@ jobs:
           fi
 
           npm publish "${{ steps.meta.outputs.package_dir }}" --provenance --access public --tag beta
+
+      - name: Publish AUR package
+        if: steps.meta.outputs.skipped != 'true'
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [ "${AUR_PUBLISH_ENABLED}" != "true" ]; then
+            echo "AUR publish not enabled; skipping"
+            exit 0
+          fi
+
+          if [ -z "${AUR_SSH_PRIVATE_KEY}" ]; then
+            echo "AUR SSH key missing; skipping"
+            exit 0
+          fi
+
+          install -dm700 ~/.ssh
+          printf '%s\n' "${AUR_SSH_PRIVATE_KEY}" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o IdentitiesOnly=yes"
+          git clone "ssh://aur@aur.archlinux.org/${{ steps.meta.outputs.aur_package_name }}.git" aur-beta
+          cp "${{ steps.meta.outputs.pkgbuild }}" aur-beta/PKGBUILD
+          cp "${{ steps.meta.outputs.srcinfo }}" aur-beta/.SRCINFO
+          cp "${{ steps.meta.outputs.install_script }}" "aur-beta/${{ steps.meta.outputs.aur_package_name }}.install"
+
+          git -C aur-beta config user.name "codex-app-linux bot"
+          git -C aur-beta config user.email "zero@composer.group"
+          git -C aur-beta add PKGBUILD .SRCINFO "${{ steps.meta.outputs.aur_package_name }}.install"
+
+          if git -C aur-beta diff --cached --quiet; then
+            echo "AUR package already current; skipping"
+            exit 0
+          fi
+
+          git -C aur-beta commit -m "Update to ${{ steps.meta.outputs.package_version }}"
+          git -C aur-beta push origin HEAD

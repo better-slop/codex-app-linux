@@ -34,6 +34,18 @@ codex-app-linux
 npx codex-app-linux@beta
 ```
 
+AUR:
+
+```bash
+yay -S codex-app-linux-bin
+```
+
+Beta AUR:
+
+```bash
+yay -S codex-app-linux-beta-bin
+```
+
 ## Requirements
 
 - Linux x64
@@ -81,6 +93,14 @@ npm:
 - publishes `codex-app-linux`
 - acts as a thin launcher
 - downloads the matching `linux-unpacked` tarball from GitHub Releases on first run
+
+AUR:
+
+- publishes binary packages from the same GitHub release tarballs
+- installs the unpacked app into `/opt`
+- installs desktop entry + icon for Arch launchers/menus
+- prod package: `codex-app-linux-bin`
+- beta package: `codex-app-linux-beta-bin`
 
 Launcher behavior:
 

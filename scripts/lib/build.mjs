@@ -15,6 +15,7 @@ import {
   projectRoot,
   releaseTagForVersion
 } from "./config.mjs";
+import { writeAurPackage } from "./aur.mjs";
 
 export async function buildChannel({
   channel,
@@ -75,20 +76,38 @@ export async function buildChannel({
     paths.outputDir,
     `${assetPrefix}-linux-unpacked.tar.gz`
   );
+  const iconAssetPath = path.join(paths.outputDir, `${assetPrefix}.png`);
 
   await packDirectory(linuxDir, unpackedTarballPath);
+  await fs.copyFile(linuxIconPath, iconAssetPath);
 
   const appImageSha256 = await sha256File(appImagePath);
   const unpackedTarballSha256 = await sha256File(unpackedTarballPath);
+  const iconSha256 = await sha256File(iconAssetPath);
   const checksumsPath = path.join(paths.outputDir, `${assetPrefix}.sha256`);
 
   await fs.writeFile(
     checksumsPath,
     [
       `${appImageSha256}  ${path.basename(appImagePath)}`,
-      `${unpackedTarballSha256}  ${path.basename(unpackedTarballPath)}`
+      `${unpackedTarballSha256}  ${path.basename(unpackedTarballPath)}`,
+      `${iconSha256}  ${path.basename(iconAssetPath)}`
     ].join("\n") + "\n"
   );
+
+  const aurDir = path.join(paths.outputDir, "aur");
+  const aurPackage = await writeAurPackage({
+    channel,
+    packageVersion,
+    releaseRepo,
+    releaseTag,
+    executableName: channel.executableName,
+    tarballAssetName: path.basename(unpackedTarballPath),
+    tarballSha256: unpackedTarballSha256,
+    iconAssetName: path.basename(iconAssetPath),
+    iconSha256,
+    targetDir: aurDir
+  });
 
   const packageDir = await assembleNpmPackage({
     channel,
@@ -111,7 +130,10 @@ export async function buildChannel({
     linuxDir,
     appImagePath,
     unpackedTarballPath,
+    iconAssetPath,
     checksumsPath,
+    aurDir,
+    aurPackage,
     releaseRepo,
     releaseTag
   };
