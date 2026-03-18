@@ -41,17 +41,10 @@ jobs:
           echo "prod_version=$(jq -r '.channels.prod.packageVersion' dist/release-state.json)" >> "$GITHUB_OUTPUT"
           echo "beta_version=$(jq -r '.channels.beta.packageVersion' dist/release-state.json)" >> "$GITHUB_OUTPUT"
 
-  publish:
+  publish-prod:
     needs: preflight
-    if: >
-      github.event.inputs.force == 'true' ||
-      (matrix.channel == 'prod' && needs.preflight.outputs.prod_outdated == 'true') ||
-      (matrix.channel == 'beta' && needs.preflight.outputs.beta_outdated == 'true')
+    if: github.event.inputs.force == 'true' || needs.preflight.outputs.prod_outdated == 'true'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        channel: [prod, beta]
     permissions:
       contents: write
       id-token: write
@@ -81,14 +74,14 @@ jobs:
             extra_args="--force"
           fi
           node scripts/release-channel.mjs \
-            --channel "${{ matrix.channel }}" \
-            --json-output "dist/${{ matrix.channel }}-release.json" \
+            --channel "prod" \
+            --json-output "dist/prod-release.json" \
             $extra_args
 
       - name: Read build metadata
         id: meta
         run: |
-          json="dist/${{ matrix.channel }}-release.json"
+          json="dist/prod-release.json"
           echo "skipped=$(jq -r '.skipped // false' "$json")" >> "$GITHUB_OUTPUT"
           echo "package_dir=$(jq -r '.packageDir // ""' "$json")" >> "$GITHUB_OUTPUT"
           echo "appimage=$(jq -r '.appImagePath // ""' "$json")" >> "$GITHUB_OUTPUT"
@@ -102,7 +95,7 @@ jobs:
         if: steps.meta.outputs.skipped != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.channel }}-${{ steps.meta.outputs.package_version }}
+          name: prod-${{ steps.meta.outputs.package_version }}
           path: |
             ${{ steps.meta.outputs.appimage }}
             ${{ steps.meta.outputs.tarball }}
@@ -121,7 +114,7 @@ jobs:
             gh release create "${{ steps.meta.outputs.release_tag }}" \
               --title "${{ steps.meta.outputs.release_tag }}" \
               $prerelease_flag \
-              --notes "Automated Linux release for ${{ matrix.channel }}"
+              --notes "Automated Linux release for prod"
           fi
 
           gh release upload "${{ steps.meta.outputs.release_tag }}" \
@@ -138,8 +131,96 @@ jobs:
             exit 0
           fi
 
-          npm_tag="beta"
-          if [ "${{ matrix.channel }}" = "prod" ]; then
-            npm_tag="latest"
+          npm publish "${{ steps.meta.outputs.package_dir }}" --provenance --access public --tag latest
+
+  publish-beta:
+    needs: preflight
+    if: github.event.inputs.force == 'true' || needs.preflight.outputs.beta_outdated == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      NPM_CONFIG_PROVENANCE: "true"
+      NPM_PACKAGE_NAME: "codex-app-linux"
+      CODEX_RELEASE_REPO: "${{ github.repository }}"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full jq libarchive-tools
+
+      - name: Install repo deps
+        run: npm ci
+
+      - name: Build channel
+        run: |
+          extra_args=""
+          if [ "${{ github.event.inputs.force || 'false' }}" = "true" ]; then
+            extra_args="--force"
           fi
-          npm publish "${{ steps.meta.outputs.package_dir }}" --provenance --access public --tag "$npm_tag"
+          node scripts/release-channel.mjs \
+            --channel "beta" \
+            --json-output "dist/beta-release.json" \
+            $extra_args
+
+      - name: Read build metadata
+        id: meta
+        run: |
+          json="dist/beta-release.json"
+          echo "skipped=$(jq -r '.skipped // false' "$json")" >> "$GITHUB_OUTPUT"
+          echo "package_dir=$(jq -r '.packageDir // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "appimage=$(jq -r '.appImagePath // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "tarball=$(jq -r '.unpackedTarballPath // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "checksums=$(jq -r '.checksumsPath // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$(jq -r '.releaseTag // ""' "$json")" >> "$GITHUB_OUTPUT"
+          echo "package_version=$(jq -r '.packageVersion' "$json")" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$(jq -r '.prerelease // false' "$json")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifacts
+        if: steps.meta.outputs.skipped != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: beta-${{ steps.meta.outputs.package_version }}
+          path: |
+            ${{ steps.meta.outputs.appimage }}
+            ${{ steps.meta.outputs.tarball }}
+            ${{ steps.meta.outputs.checksums }}
+
+      - name: Create or update GitHub release
+        if: steps.meta.outputs.skipped != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh release view "${{ steps.meta.outputs.release_tag }}" >/dev/null 2>&1; then
+            prerelease_flag=""
+            if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then
+              prerelease_flag="--prerelease"
+            fi
+            gh release create "${{ steps.meta.outputs.release_tag }}" \
+              --title "${{ steps.meta.outputs.release_tag }}" \
+              $prerelease_flag \
+              --notes "Automated Linux release for beta"
+          fi
+
+          gh release upload "${{ steps.meta.outputs.release_tag }}" \
+            "${{ steps.meta.outputs.appimage }}" \
+            "${{ steps.meta.outputs.tarball }}" \
+            "${{ steps.meta.outputs.checksums }}" \
+            --clobber
+
+      - name: Publish npm package
+        if: steps.meta.outputs.skipped != 'true'
+        run: |
+          if npm view "codex-app-linux@${{ steps.meta.outputs.package_version }}" version >/dev/null 2>&1; then
+            echo "npm package version already exists; skipping publish"
+            exit 0
+          fi
+
+          npm publish "${{ steps.meta.outputs.package_dir }}" --provenance --access public --tag beta
