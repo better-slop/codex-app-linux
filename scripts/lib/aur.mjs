@@ -157,7 +157,7 @@ function renderSrcinfo({
   iconSha256
 }) {
   const pkgdesc =
-    `${channel.displayName} Linux desktop app repackaged from official upstream releases.`;
+    `${channel.displayName} Linux desktop app repackaged from official upstream releases. Not dependent on OpenAI's Codex CLI from AUR.`;
 
   return `pkgbase = ${pkgname}
 \tpkgdesc = ${pkgdesc}
