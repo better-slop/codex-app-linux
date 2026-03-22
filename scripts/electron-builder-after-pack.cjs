@@ -69,7 +69,19 @@ fi
 
 export CODEX_CLI_PATH="$resolved_codex"
 
-script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+script_path="$0"
+
+if command -v readlink >/dev/null 2>&1; then
+  resolved_script="$(readlink -f -- "$script_path" 2>/dev/null || true)"
+
+  if [ -n "$resolved_script" ]; then
+    script_path="$resolved_script"
+  fi
+fi
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd)"
 exec "$script_dir/${binaryName}" "$@"
 `;
 }
+
+module.exports.wrapperScript = wrapperScript;
