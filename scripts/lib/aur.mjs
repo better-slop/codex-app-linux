@@ -92,8 +92,7 @@ function renderPkgbuild({
   iconSourceUrl,
   iconSha256
 }) {
-  const pkgdesc =
-    `${channel.displayName} Linux desktop app repackaged from official upstream releases.`;
+  const pkgdesc = aurPkgdesc(channel);
 
   return `pkgname=${shellQuote(pkgname)}
 pkgver=${shellQuote(pkgver)}
@@ -156,8 +155,7 @@ function renderSrcinfo({
   iconSourceUrl,
   iconSha256
 }) {
-  const pkgdesc =
-    `${channel.displayName} Linux desktop app repackaged from official upstream releases. Not dependent on OpenAI's Codex CLI from AUR.`;
+  const pkgdesc = aurPkgdesc(channel);
 
   return `pkgbase = ${pkgname}
 \tpkgdesc = ${pkgdesc}
@@ -199,4 +197,10 @@ post_upgrade() {
 
 function shellQuote(value) {
   return `'${String(value).replaceAll("'", "'\\''")}'`;
+}
+
+function aurPkgdesc(channel) {
+  return channel.prerelease
+    ? "Unofficial Linux build of Codex Beta from OpenAI's Codex beta appcast feed."
+    : "Unofficial Linux build of Codex from OpenAI's Codex appcast feed.";
 }

@@ -44,9 +44,17 @@ test("writeAurPackage emits PKGBUILD, .SRCINFO, and install script", async () =>
   const installScript = await fs.readFile(result.installPath, "utf8");
 
   assert.match(pkgbuild, /pkgname='codex-app-linux-bin'/);
+  assert.match(
+    pkgbuild,
+    /pkgdesc='Unofficial Linux build of Codex from OpenAI'\\''s Codex appcast feed\.'/
+  );
   assert.match(pkgbuild, /Exec=codex-app-linux %U/);
   assert.match(pkgbuild, /linux-unpacked/);
   assert.match(srcinfo, /pkgbase = codex-app-linux-bin/);
+  assert.match(
+    srcinfo,
+    /pkgdesc = Unofficial Linux build of Codex from OpenAI's Codex appcast feed\./
+  );
   assert.match(srcinfo, /pkgver = 26.313.41514_launcher.1/);
   assert.match(installScript, /expects an existing 'codex' binary on PATH/);
 });
