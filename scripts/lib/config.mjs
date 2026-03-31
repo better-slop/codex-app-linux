@@ -23,6 +23,7 @@ export const channels = {
     appId: "com.openai.codex.linux",
     executableName: "codex-app-linux",
     aurPackageName: "codex-app-unofficial",
+    legacyAurPackageName: "codex-app-linux-bin",
     prerelease: false
   },
   beta: {
@@ -32,6 +33,7 @@ export const channels = {
     appId: "com.openai.codex.beta.linux",
     executableName: "codex-app-linux-beta",
     aurPackageName: "codex-app-beta-unofficial",
+    legacyAurPackageName: "codex-app-linux-beta-bin",
     prerelease: true
   }
 };

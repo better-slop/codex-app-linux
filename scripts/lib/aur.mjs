@@ -14,6 +14,7 @@ export async function writeAurPackage({
   targetDir
 }) {
   const pkgname = channel.aurPackageName;
+  const legacyPkgname = channel.legacyAurPackageName || null;
   const appDirName = executableName;
   const desktopId = executableName;
   const pkgver = archPkgverFor(packageVersion);
@@ -40,6 +41,7 @@ export async function writeAurPackage({
   const pkgbuild = renderPkgbuild({
     channel,
     pkgname,
+    legacyPkgname,
     pkgver,
     url,
     executableName,
@@ -55,6 +57,7 @@ export async function writeAurPackage({
   const srcinfo = renderSrcinfo({
     channel,
     pkgname,
+    legacyPkgname,
     pkgver,
     url,
     tarballAssetName,
@@ -80,6 +83,7 @@ export function archPkgverFor(version) {
 function renderPkgbuild({
   channel,
   pkgname,
+  legacyPkgname,
   pkgver,
   url,
   executableName,
@@ -93,6 +97,11 @@ function renderPkgbuild({
   iconSha256
 }) {
   const pkgdesc = aurPkgdesc(channel);
+  const packageRelations = legacyPkgname
+    ? `provides=(${shellQuote(legacyPkgname)})
+conflicts=(${shellQuote(legacyPkgname)})
+replaces=(${shellQuote(legacyPkgname)})`
+    : "";
 
   return `pkgname=${shellQuote(pkgname)}
 pkgver=${shellQuote(pkgver)}
@@ -102,6 +111,7 @@ arch=('x86_64')
 url=${shellQuote(url)}
 license=('custom')
 depends=('alsa-lib' 'gtk3' 'libnotify' 'libsecret' 'libxss' 'nss' 'xdg-utils')
+${packageRelations}
 install=${shellQuote(`${pkgname}.install`)}
 source=(
   ${shellQuote(`${tarballAssetName}::${tarballSourceUrl}`)}
@@ -146,6 +156,7 @@ EOF
 function renderSrcinfo({
   channel,
   pkgname,
+  legacyPkgname,
   pkgver,
   url,
   tarballAssetName,
@@ -156,6 +167,12 @@ function renderSrcinfo({
   iconSha256
 }) {
   const pkgdesc = aurPkgdesc(channel);
+  const packageRelations = legacyPkgname
+    ? `\tprovides = ${legacyPkgname}
+\tconflicts = ${legacyPkgname}
+\treplaces = ${legacyPkgname}
+`
+    : "";
 
   return `pkgbase = ${pkgname}
 \tpkgdesc = ${pkgdesc}
@@ -171,7 +188,7 @@ function renderSrcinfo({
 \tdepends = libxss
 \tdepends = nss
 \tdepends = xdg-utils
-\tinstall = ${pkgname}.install
+${packageRelations}\tinstall = ${pkgname}.install
 \tsource = ${tarballAssetName}::${tarballSourceUrl}
 \tsource = ${iconAssetName}::${iconSourceUrl}
 \tsha256sums = ${tarballSha256}

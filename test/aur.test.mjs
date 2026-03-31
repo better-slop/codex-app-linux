@@ -19,7 +19,8 @@ test("writeAurPackage emits PKGBUILD, .SRCINFO, and install script", async () =>
   const result = await writeAurPackage({
     channel: {
       displayName: "Codex",
-      aurPackageName: "codex-app-unofficial"
+      aurPackageName: "codex-app-unofficial",
+      legacyAurPackageName: "codex-app-linux-bin"
     },
     packageVersion: "26.313.41514-launcher.1",
     releaseRepo: "better-slop/codex-app-linux",
@@ -44,6 +45,9 @@ test("writeAurPackage emits PKGBUILD, .SRCINFO, and install script", async () =>
   const installScript = await fs.readFile(result.installPath, "utf8");
 
   assert.match(pkgbuild, /pkgname='codex-app-unofficial'/);
+  assert.match(pkgbuild, /provides=\('codex-app-linux-bin'\)/);
+  assert.match(pkgbuild, /conflicts=\('codex-app-linux-bin'\)/);
+  assert.match(pkgbuild, /replaces=\('codex-app-linux-bin'\)/);
   assert.match(
     pkgbuild,
     /pkgdesc='Unofficial Linux build of Codex from OpenAI'\\''s Codex appcast feed\.'/
@@ -51,6 +55,9 @@ test("writeAurPackage emits PKGBUILD, .SRCINFO, and install script", async () =>
   assert.match(pkgbuild, /Exec=codex-app-linux %U/);
   assert.match(pkgbuild, /linux-unpacked/);
   assert.match(srcinfo, /pkgbase = codex-app-unofficial/);
+  assert.match(srcinfo, /provides = codex-app-linux-bin/);
+  assert.match(srcinfo, /conflicts = codex-app-linux-bin/);
+  assert.match(srcinfo, /replaces = codex-app-linux-bin/);
   assert.match(
     srcinfo,
     /pkgdesc = Unofficial Linux build of Codex from OpenAI's Codex appcast feed\./
