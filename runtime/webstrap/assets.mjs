@@ -78,13 +78,16 @@ export async function ensureCodexAppExists(paths) {
 export async function readBuildMetadata(paths, fallback = {}) {
   let shortVersion = fallback.shortVersion || "unknown";
   let bundleVersion = fallback.bundleVersion || "unknown";
+  let buildNumber = fallback.buildNumber || bundleVersion;
+  let buildFlavor = fallback.buildFlavor || "prod";
 
   if (paths.packageMetadataPath) {
     try {
       const packageJson = JSON.parse(await fsp.readFile(paths.packageMetadataPath, "utf8"));
       shortVersion = packageJson.version || shortVersion;
-      bundleVersion =
-        String(packageJson.codexBuildNumber || packageJson.buildNumber || bundleVersion);
+      buildNumber = String(packageJson.codexBuildNumber || packageJson.buildNumber || buildNumber);
+      bundleVersion = buildNumber || bundleVersion;
+      buildFlavor = packageJson.codexBuildFlavor || packageJson.buildFlavor || buildFlavor;
     } catch {
       // optional
     }
@@ -93,7 +96,7 @@ export async function readBuildMetadata(paths, fallback = {}) {
   const buildKeySource = fallback.buildKey || `${shortVersion}-${bundleVersion}`;
   const buildKey = buildKeySource.replace(/[^a-zA-Z0-9._-]/g, "_");
 
-  return { bundleVersion, shortVersion, buildKey };
+  return { bundleVersion, shortVersion, buildNumber, buildFlavor, buildKey };
 }
 
 async function runAsarCliExtract(asarPath, outputPath) {

@@ -34,7 +34,8 @@ test("readBuildMetadata supports linux package metadata without Info.plist", asy
     path.join(resourcesPath, "app-package.json"),
     JSON.stringify({
       version: "26.313.41514",
-      codexBuildNumber: "41514"
+      codexBuildNumber: "41514",
+      codexBuildFlavor: "public-beta"
     })
   );
 
@@ -47,5 +48,7 @@ test("readBuildMetadata supports linux package metadata without Info.plist", asy
 
   assert.equal(metadata.shortVersion, "26.313.41514");
   assert.equal(metadata.bundleVersion, "41514");
+  assert.equal(metadata.buildNumber, "41514");
+  assert.equal(metadata.buildFlavor, "public-beta");
   assert.match(metadata.buildKey, /26\.313\.41514/);
 });

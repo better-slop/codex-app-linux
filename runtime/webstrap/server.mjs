@@ -149,6 +149,8 @@ async function main() {
   const build = await readBuildMetadata(codexPaths, {
     shortVersion: packageData?.packageJson?.version,
     bundleVersion: packageData?.metadata?.releaseTag,
+    buildNumber: packageData?.metadata?.releaseTag,
+    buildFlavor: packageData?.metadata?.executableName?.includes("beta") ? "public-beta" : "prod",
     buildKey: packageData
       ? `${packageData.metadata.executableName}-${packageData.packageJson.version}`
       : undefined
@@ -241,7 +243,13 @@ async function main() {
       if (url.pathname === "/__webstrapper/shim.js") {
         res.statusCode = 200;
         res.setHeader("content-type", "application/javascript; charset=utf-8");
-        res.end(shimBody);
+        res.end(
+          `window.__codexWebstrapBuildInfo=${JSON.stringify({
+            appVersion: build.shortVersion,
+            buildNumber: build.buildNumber,
+            buildFlavor: build.buildFlavor
+          })};\n${shimBody}`
+        );
         return;
       }
 

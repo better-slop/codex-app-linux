@@ -8,6 +8,10 @@
   const CONTEXT_MENU_ROOT_ID = "__codex-webstrap-context-menu-root";
   const CONTEXT_MENU_STYLE_ID = "__codex-webstrap-context-menu-style";
   const MOBILE_STYLE_ID = "__codex-webstrap-mobile-style";
+  const buildInfo =
+    window.__codexWebstrapBuildInfo && typeof window.__codexWebstrapBuildInfo === "object"
+      ? window.__codexWebstrapBuildInfo
+      : {};
 
   let ws = null;
   let connected = false;
@@ -904,10 +908,25 @@
     },
     getSentryInitOptions: () => ({
       dsn: null,
-      codexAppSessionId: null
+      codexAppSessionId: null,
+      appVersion:
+        typeof buildInfo.appVersion === "string" && buildInfo.appVersion.length > 0
+          ? buildInfo.appVersion
+          : "0.0.0",
+      buildNumber:
+        typeof buildInfo.buildNumber === "string" && buildInfo.buildNumber.length > 0
+          ? buildInfo.buildNumber
+          : undefined,
+      buildFlavor:
+        typeof buildInfo.buildFlavor === "string" && buildInfo.buildFlavor.length > 0
+          ? buildInfo.buildFlavor
+          : "prod"
     }),
     getAppSessionId: () => null,
-    getBuildFlavor: () => "prod"
+    getBuildFlavor: () =>
+      typeof buildInfo.buildFlavor === "string" && buildInfo.buildFlavor.length > 0
+        ? buildInfo.buildFlavor
+        : "prod"
   };
 
   window.codexWindowType = "electron";
