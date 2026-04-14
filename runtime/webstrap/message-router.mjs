@@ -1170,6 +1170,7 @@ export class MessageRouter {
         case "power-save-blocker-set":
         case "hotkey-window-enabled-changed":
         case "heartbeat-automations-enabled-changed":
+        case "codex-runtimes-config-changed":
         case "electron-desktop-features-changed":
         case "desktop-notification-show":
         case "desktop-notification-hide":

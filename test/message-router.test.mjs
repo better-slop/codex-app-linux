@@ -92,6 +92,37 @@ test("MessageRouter ignores electron-only startup pings in web mode", async () =
   router.dispose();
 });
 
+test("MessageRouter ignores side-panel runtime config change pings in web mode", async () => {
+  const router = new MessageRouter({
+    appServer: null,
+    udsClient: null,
+    workerPath: null,
+    logger: createLogger()
+  });
+
+  const sent = [];
+  const ws = {
+    readyState: 1,
+    send(payload) {
+      sent.push(JSON.parse(payload));
+    }
+  };
+
+  await router.handleEnvelope(ws, {
+    type: "view-message",
+    payload: {
+      type: "codex-runtimes-config-changed",
+      config: {
+        selectedRuntime: "local"
+      }
+    }
+  });
+
+  assert.deepEqual(sent, []);
+
+  router.dispose();
+});
+
 test("MessageRouter returns Codex code theme defaults for configuration reads", async () => {
   const router = new MessageRouter({
     appServer: null,
