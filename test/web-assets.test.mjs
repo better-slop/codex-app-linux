@@ -5,11 +5,14 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  defaultAllowedLocalAssetRoots,
   patchStatsigChunkSource,
+  readAllowedLocalAssetFile,
   readBuildMetadata,
   readExtractedBuildMetadata,
   resolveCodexAppPaths
 } from "../runtime/webstrap/assets.mjs";
+import { safePathJoin } from "../runtime/webstrap/util.mjs";
 
 test("resolveCodexAppPaths supports linux-unpacked layout", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-web-assets-"));
@@ -89,4 +92,41 @@ test("patchStatsigChunkSource makes statsig init non-blocking", () => {
 
   assert.match(patched, /\[a,o\]=\(0,t\.useState\)\(!1\)/);
   assert.doesNotMatch(patched, /i\.loadingStatus!==`Ready`\);return/);
+});
+
+test("readAllowedLocalAssetFile serves plugin assets from approved roots", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-local-assets-"));
+  const assetPath = path.join(root, "plugins", "github", "assets", "github.png");
+
+  await fs.mkdir(path.dirname(assetPath), { recursive: true });
+  await fs.writeFile(assetPath, "png-data");
+
+  const result = await readAllowedLocalAssetFile(assetPath, [root]);
+
+  assert.equal(result?.contentType, "image/png");
+  assert.equal(result?.body.toString("utf8"), "png-data");
+});
+
+test("readAllowedLocalAssetFile rejects paths outside approved roots", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-local-assets-"));
+  const outsideRoot = `${root}-sibling`;
+  const assetPath = path.join(outsideRoot, "plugins", "github", "assets", "github.png");
+
+  await fs.mkdir(path.dirname(assetPath), { recursive: true });
+  await fs.writeFile(assetPath, "png-data");
+
+  const result = await readAllowedLocalAssetFile(assetPath, [root]);
+
+  assert.equal(result, null);
+});
+
+test("safePathJoin rejects sibling prefix escapes", () => {
+  const joined = safePathJoin("/tmp/codex-root", "../codex-root-sibling/secret.txt");
+  assert.equal(joined, null);
+});
+
+test("defaultAllowedLocalAssetRoots points at codex plugin temp assets", () => {
+  assert.deepEqual(defaultAllowedLocalAssetRoots("/home/tester"), [
+    "/home/tester/.codex/.tmp/plugins"
+  ]);
 });

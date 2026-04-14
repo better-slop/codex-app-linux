@@ -1805,6 +1805,9 @@ export class MessageRouter {
           };
           break;
         }
+        case "read-file-binary":
+          payload = await this._readFileBinaryPayload(params);
+          break;
         case "active-workspace-roots":
           payload = { roots: this.activeWorkspaceRoots };
           break;
@@ -2029,6 +2032,36 @@ export class MessageRouter {
       commonDir,
       originUrl: originResult.ok && originResult.stdout ? originResult.stdout : null
     };
+  }
+
+  async _readFileBinaryPayload(params) {
+    const filePath = typeof params?.path === "string" ? params.path.trim() : "";
+    if (filePath.length === 0) {
+      return {
+        contentsBase64: "",
+        mimeType: null,
+        sizeBytes: 0
+      };
+    }
+
+    try {
+      const data = await fs.readFile(filePath);
+      return {
+        contentsBase64: data.toString("base64"),
+        mimeType: null,
+        sizeBytes: data.byteLength
+      };
+    } catch (error) {
+      this.logger.warn("Failed to read binary file", {
+        path: filePath,
+        error: toErrorMessage(error)
+      });
+      return {
+        contentsBase64: "",
+        mimeType: null,
+        sizeBytes: 0
+      };
+    }
   }
 
   async _resolveGhCliStatus() {

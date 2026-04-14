@@ -26,6 +26,19 @@ const CONTENT_TYPES = {
   ".js.map": "application/json; charset=utf-8"
 };
 
+const LOCAL_ASSET_EXTENSIONS = new Set([
+  ".svg",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".ico"
+]);
+
 const STATSIG_BLOCKING_INIT_SNIPPET =
   "[a,o]=(0,t.useState)(i.loadingStatus!==`Ready`)";
 const STATSIG_NON_BLOCKING_INIT_SNIPPET =
@@ -281,5 +294,57 @@ export async function readStaticFile(webRoot, requestPath) {
     return { body, contentType };
   } catch (error) {
     throw new Error(`Failed reading asset ${filePath}: ${toErrorMessage(error)}`);
+  }
+}
+
+export function defaultAllowedLocalAssetRoots(homeDir = os.homedir()) {
+  return [path.join(homeDir, ".codex", ".tmp", "plugins")];
+}
+
+export async function readAllowedLocalAssetFile(
+  requestPath,
+  allowedRoots = defaultAllowedLocalAssetRoots()
+) {
+  if (typeof requestPath !== "string" || !path.isAbsolute(requestPath)) {
+    return null;
+  }
+
+  let decodedPath = requestPath;
+  try {
+    decodedPath = decodeURIComponent(requestPath);
+  } catch {
+    // Keep raw path if it is not valid percent-encoding.
+  }
+
+  if (!decodedPath.includes("/assets/")) {
+    return null;
+  }
+
+  const ext = path.extname(decodedPath).toLowerCase();
+  if (!LOCAL_ASSET_EXTENSIONS.has(ext)) {
+    return null;
+  }
+
+  const filePath = allowedRoots
+    .map((root) => safePathJoin(root, path.relative(root, decodedPath)))
+    .find(Boolean);
+
+  if (!filePath) {
+    return null;
+  }
+
+  const stat = await fsp.stat(filePath).catch(() => null);
+  if (!stat || !stat.isFile()) {
+    return null;
+  }
+
+  try {
+    const body = await fsp.readFile(filePath);
+    return {
+      body,
+      contentType: CONTENT_TYPES[ext] || "application/octet-stream"
+    };
+  } catch (error) {
+    throw new Error(`Failed reading local asset ${filePath}: ${toErrorMessage(error)}`);
   }
 }

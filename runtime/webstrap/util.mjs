@@ -74,8 +74,10 @@ export function safeJsonParse(raw) {
 
 export function safePathJoin(root, requestPath) {
   const normalized = requestPath.replace(/^\/+/, "");
-  const fullPath = path.resolve(root, normalized);
-  if (!fullPath.startsWith(path.resolve(root))) {
+  const resolvedRoot = path.resolve(root);
+  const fullPath = path.resolve(resolvedRoot, normalized);
+  const relative = path.relative(resolvedRoot, fullPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
     return null;
   }
   return fullPath;

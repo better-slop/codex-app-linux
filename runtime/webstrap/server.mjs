@@ -14,6 +14,7 @@ import {
 } from "./auth.mjs";
 import {
   buildPatchedIndexHtml,
+  readAllowedLocalAssetFile,
   ensureCodexAppExists,
   ensureExtractedAssets,
   readExtractedBuildMetadata,
@@ -302,14 +303,19 @@ async function main() {
       }
 
       const staticFile = await readStaticFile(assetBundle.webRoot, url.pathname);
-      if (!staticFile) {
+      const localAssetFile = staticFile
+        ? null
+        : await readAllowedLocalAssetFile(url.pathname);
+      const responseFile = staticFile || localAssetFile;
+
+      if (!responseFile) {
         sendNotFound(res);
         return;
       }
 
       res.statusCode = 200;
-      res.setHeader("content-type", staticFile.contentType);
-      res.end(staticFile.body);
+      res.setHeader("content-type", responseFile.contentType);
+      res.end(responseFile.body);
     } catch (error) {
       logger.error("HTTP handler failed", { error: toErrorMessage(error) });
       sendJson(res, 500, { error: "internal_server_error" });
