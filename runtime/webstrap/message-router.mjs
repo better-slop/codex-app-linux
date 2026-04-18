@@ -1171,6 +1171,7 @@ export class MessageRouter {
         case "hotkey-window-enabled-changed":
         case "heartbeat-automations-enabled-changed":
         case "codex-runtimes-config-changed":
+        case "mac-menu-bar-enabled-changed":
         case "electron-desktop-features-changed":
         case "desktop-notification-show":
         case "desktop-notification-hide":
@@ -1882,6 +1883,28 @@ export class MessageRouter {
           break;
         case "recommended-skills":
           payload = { skills: [] };
+          break;
+        case "ambient-suggestions":
+          payload = {
+            file: {
+              generatedAtMs: null,
+              currentSuggestionIds: [],
+              suggestions: []
+            }
+          };
+          break;
+        case "ambient-suggestions-refresh":
+          payload = { success: true };
+          status = 202;
+          break;
+        case "ambient-suggestions-generation-statuses":
+          payload = { statuses: [] };
+          break;
+        case "projectless-thread-cwd":
+          payload = { cwd: this.activeWorkspaceRoots[0] ?? process.cwd() };
+          break;
+        case "projectless-thread-ids":
+          payload = [];
           break;
         case "third-party-notices":
           payload = { notices: [] };

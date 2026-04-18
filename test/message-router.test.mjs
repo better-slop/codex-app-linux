@@ -123,6 +123,35 @@ test("MessageRouter ignores side-panel runtime config change pings in web mode",
   router.dispose();
 });
 
+test("MessageRouter ignores mac menu bar pings in web mode", async () => {
+  const router = new MessageRouter({
+    appServer: null,
+    udsClient: null,
+    workerPath: null,
+    logger: createLogger()
+  });
+
+  const sent = [];
+  const ws = {
+    readyState: 1,
+    send(payload) {
+      sent.push(JSON.parse(payload));
+    }
+  };
+
+  await router.handleEnvelope(ws, {
+    type: "view-message",
+    payload: {
+      type: "mac-menu-bar-enabled-changed",
+      enabled: true
+    }
+  });
+
+  assert.deepEqual(sent, []);
+
+  router.dispose();
+});
+
 test("MessageRouter returns Codex code theme defaults for configuration reads", async () => {
   const router = new MessageRouter({
     appServer: null,
@@ -238,10 +267,43 @@ test("MessageRouter provides browser-safe virtual fetch defaults", async () => {
     body: JSON.stringify({})
   });
 
+  await router._handleVirtualFetch(ws, "req-5", {
+    requestId: "req-5",
+    method: "POST",
+    url: "vscode://codex/ambient-suggestions",
+    body: JSON.stringify({
+      params: {
+        projectRoot: "/tmp/project"
+      }
+    })
+  });
+
+  await router._handleVirtualFetch(ws, "req-6", {
+    requestId: "req-6",
+    method: "POST",
+    url: "vscode://codex/ambient-suggestions-refresh",
+    body: JSON.stringify({
+      params: {
+        projectRoot: "/tmp/project"
+      }
+    })
+  });
+
   assert.equal(JSON.parse(sent[0].payload.bodyJsonString).agents.length, 0);
   assert.deepEqual(JSON.parse(sent[1].payload.bodyJsonString).state, {
     supported: false,
     configuredHotkey: null
+  });
+  assert.deepEqual(JSON.parse(sent[2].payload.bodyJsonString), {
+    file: {
+      generatedAtMs: null,
+      currentSuggestionIds: [],
+      suggestions: []
+    }
+  });
+  assert.equal(sent[3].payload.status, 202);
+  assert.deepEqual(JSON.parse(sent[3].payload.bodyJsonString), {
+    success: true
   });
 
   router.dispose();
