@@ -6,7 +6,7 @@ import { readFileSync, statSync } from "node:fs";
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { createLogger, randomId, safeJsonParse, toErrorMessage } from "./util.mjs";
+import { createLogger, randomId, safeJsonParse, safePathJoin, toErrorMessage } from "./util.mjs";
 
 export const FULL_HANDLING_BUCKET = [
   "ready",
@@ -1817,7 +1817,7 @@ export class MessageRouter {
           payload = this.workspaceRootOptions;
           break;
         case "workspace-directory-entries":
-          payload = { entries: [] };
+          payload = await this._readWorkspaceDirectoryEntriesPayload(params);
           break;
         case "git-origins": {
           const dirs = Array.isArray(params?.dirs) ? params.dirs.filter((dir) => typeof dir === "string" && dir.length > 0) : [];
@@ -2089,6 +2089,70 @@ export class MessageRouter {
         sizeBytes: 0
       };
     }
+  }
+
+  async _readWorkspaceDirectoryEntriesPayload(params) {
+    const workspaceRoot = this._resolveLocalEnvironmentWorkspaceRoot(params?.workspaceRoot);
+    if (!workspaceRoot) {
+      return { entries: [] };
+    }
+
+    const includeHidden = params?.includeHidden === true;
+    const rawDirectoryPath = typeof params?.directoryPath === "string"
+      ? params.directoryPath.trim()
+      : "";
+    const normalizedDirectoryPath = rawDirectoryPath
+      .replace(/^\/+/, "")
+      .replace(/\/+$/, "");
+    const targetDirectory = normalizedDirectoryPath.length > 0
+      ? safePathJoin(workspaceRoot, normalizedDirectoryPath)
+      : workspaceRoot;
+
+    if (!targetDirectory) {
+      return { entries: [] };
+    }
+
+    let directoryEntries;
+    try {
+      const stat = await fs.stat(targetDirectory);
+      if (!stat.isDirectory()) {
+        return { entries: [] };
+      }
+      directoryEntries = await fs.readdir(targetDirectory, { withFileTypes: true });
+    } catch (error) {
+      this.logger.warn("Failed to read workspace directory entries", {
+        workspaceRoot,
+        directoryPath: normalizedDirectoryPath,
+        error: toErrorMessage(error)
+      });
+      return { entries: [] };
+    }
+
+    const entries = directoryEntries
+      .filter((entry) => includeHidden || !entry.name.startsWith("."))
+      .flatMap((entry) => {
+        if (!entry.isDirectory() && !entry.isFile()) {
+          return [];
+        }
+
+        return [{
+          path: normalizedDirectoryPath.length > 0
+            ? path.posix.join(normalizedDirectoryPath, entry.name)
+            : entry.name,
+          type: entry.isDirectory() ? "directory" : "file"
+        }];
+      })
+      .sort((left, right) => {
+        if (left.type !== right.type) {
+          return left.type === "directory" ? -1 : 1;
+        }
+        return left.path.localeCompare(right.path, undefined, {
+          numeric: true,
+          sensitivity: "base"
+        });
+      });
+
+    return { entries };
   }
 
   async _resolveGhCliStatus() {

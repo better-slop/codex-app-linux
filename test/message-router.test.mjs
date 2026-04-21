@@ -289,13 +289,45 @@ test("MessageRouter provides browser-safe virtual fetch defaults", async () => {
     })
   });
 
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-workspace-"));
+  await fs.mkdir(path.join(workspaceRoot, "src"));
+  await fs.writeFile(path.join(workspaceRoot, "README.md"), "# hi\n");
+  await fs.writeFile(path.join(workspaceRoot, ".env"), "SECRET=1\n");
+  await fs.writeFile(path.join(workspaceRoot, "src", "index.js"), "console.log('hi');\n");
+
   await router._handleVirtualFetch(ws, "req-7", {
     requestId: "req-7",
     method: "POST",
     url: "vscode://codex/workspace-directory-entries",
     body: JSON.stringify({
       params: {
-        workspaceRoot: "/tmp/project"
+        workspaceRoot,
+        includeHidden: false
+      }
+    })
+  });
+
+  await router._handleVirtualFetch(ws, "req-8", {
+    requestId: "req-8",
+    method: "POST",
+    url: "vscode://codex/workspace-directory-entries",
+    body: JSON.stringify({
+      params: {
+        workspaceRoot,
+        directoryPath: "src/",
+        includeHidden: true
+      }
+    })
+  });
+
+  await router._handleVirtualFetch(ws, "req-9", {
+    requestId: "req-9",
+    method: "POST",
+    url: "vscode://codex/workspace-directory-entries",
+    body: JSON.stringify({
+      params: {
+        workspaceRoot,
+        includeHidden: true
       }
     })
   });
@@ -317,7 +349,40 @@ test("MessageRouter provides browser-safe virtual fetch defaults", async () => {
     success: true
   });
   assert.deepEqual(JSON.parse(sent[4].payload.bodyJsonString), {
-    entries: []
+    entries: [
+      {
+        path: "src",
+        type: "directory"
+      },
+      {
+        path: "README.md",
+        type: "file"
+      }
+    ]
+  });
+  assert.deepEqual(JSON.parse(sent[5].payload.bodyJsonString), {
+    entries: [
+      {
+        path: "src/index.js",
+        type: "file"
+      }
+    ]
+  });
+  assert.deepEqual(JSON.parse(sent[6].payload.bodyJsonString), {
+    entries: [
+      {
+        path: "src",
+        type: "directory"
+      },
+      {
+        path: ".env",
+        type: "file"
+      },
+      {
+        path: "README.md",
+        type: "file"
+      }
+    ]
   });
 
   router.dispose();
