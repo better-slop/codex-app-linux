@@ -10,53 +10,45 @@ Run the Codex desktop app on Linux via npm.
 
 ## Quick Start
 
-Install globally:
+### aur
 
-```bash
-npm i -g codex-app-linux
-codex-app-linux
-```
+- Latest
+    ```bash
+    yay -S codex-app-unofficial
+    ```
 
-Run once with `npx`:
+- Beta
+    ```bash
+    yay -S codex-app-beta-unofficial
+    ```
 
-```bash
-npx codex-app-linux
-```
+### npm
 
-Browser mode from npm:
+- Install globally
+    ```bash
+    npm i -g codex-app-linux@latest
+    ```
+    ```bash
+    npm i -g codex-app-linux@beta
+    ```
 
-```bash
-npx codex-app-linux web --open
-```
+- Run once with `npx`:
+    ```bash
+    npx codex-app-linux@latest
+    ```
+    ```bash
+    npx codex-app-linux@beta
+    ```
 
-Disable browser auth entirely (unsafe; only behind a trusted reverse proxy / tailnet):
+- Browser mode from npm (**note: many features are missing, don't expect much**):
+    ```bash
+    npx codex-app-linux web --open
+    ```
 
-```bash
-npx codex-app-linux web --dangerously-disable-auth true
-```
-
-Beta channel:
-
-```bash
-npm i -g codex-app-linux@beta
-codex-app-linux
-```
-
-```bash
-npx codex-app-linux@beta
-```
-
-AUR:
-
-```bash
-yay -S codex-app-unofficial
-```
-
-Beta AUR:
-
-```bash
-yay -S codex-app-beta-unofficial
-```
+- Disable browser auth entirely (unsafe; only behind a trusted reverse proxy / tailnet):
+    ```bash
+    npx codex-app-linux web --dangerously-disable-auth true
+    ```
 
 ## Requirements
 
