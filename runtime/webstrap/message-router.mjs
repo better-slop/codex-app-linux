@@ -1807,6 +1807,12 @@ export class MessageRouter {
           };
           break;
         }
+        case "read-file": {
+          const result = await this._readFilePayload(params);
+          payload = result.payload;
+          status = result.ok ? 200 : 404;
+          break;
+        }
         case "read-file-binary":
           payload = await this._readFileBinaryPayload(params);
           break;
@@ -2091,6 +2097,39 @@ export class MessageRouter {
     }
   }
 
+  async _readFilePayload(params) {
+    const filePath = this._resolveWorkspaceFilePath(params);
+    if (!filePath) {
+      return {
+        ok: false,
+        payload: {
+          contents: ""
+        }
+      };
+    }
+
+    try {
+      const contents = await fs.readFile(filePath, "utf8");
+      return {
+        ok: true,
+        payload: {
+          contents
+        }
+      };
+    } catch (error) {
+      this.logger.warn("Failed to read text file", {
+        path: filePath,
+        error: toErrorMessage(error)
+      });
+      return {
+        ok: false,
+        payload: {
+          contents: ""
+        }
+      };
+    }
+  }
+
   async _readWorkspaceDirectoryEntriesPayload(params) {
     const workspaceRoot = this._resolveLocalEnvironmentWorkspaceRoot(params?.workspaceRoot);
     if (!workspaceRoot) {
@@ -2153,6 +2192,24 @@ export class MessageRouter {
       });
 
     return { entries };
+  }
+
+  _resolveWorkspaceFilePath(params) {
+    const rawPath = typeof params?.path === "string" ? params.path.trim() : "";
+    if (rawPath.length === 0) {
+      return null;
+    }
+
+    if (path.isAbsolute(rawPath)) {
+      return path.resolve(rawPath);
+    }
+
+    const workspaceRoot = this._resolveLocalEnvironmentWorkspaceRoot(params?.workspaceRoot);
+    if (!workspaceRoot) {
+      return null;
+    }
+
+    return safePathJoin(workspaceRoot, rawPath);
   }
 
   async _resolveGhCliStatus() {

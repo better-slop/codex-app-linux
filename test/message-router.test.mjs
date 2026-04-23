@@ -430,3 +430,86 @@ test("MessageRouter returns base64 payloads for read-file-binary", async () => {
 
   router.dispose();
 });
+
+test("MessageRouter returns text payloads for read-file from workspace-relative paths", async () => {
+  const router = new MessageRouter({
+    appServer: null,
+    udsClient: null,
+    workerPath: null,
+    logger: createLogger()
+  });
+
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-read-file-"));
+  await fs.mkdir(path.join(workspaceRoot, "docs"));
+  await fs.writeFile(path.join(workspaceRoot, "docs", "notes.md"), "hello\nworld\n");
+
+  const sent = [];
+  const ws = {
+    readyState: 1,
+    send(payload) {
+      sent.push(JSON.parse(payload));
+    }
+  };
+
+  await router._handleVirtualFetch(ws, "req-6", {
+    requestId: "req-6",
+    method: "POST",
+    url: "vscode://codex/read-file",
+    body: JSON.stringify({
+      params: {
+        workspaceRoot,
+        path: "docs/notes.md",
+        hostId: "local"
+      }
+    })
+  });
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].payload.status, 200);
+  assert.deepEqual(JSON.parse(sent[0].payload.bodyJsonString), {
+    contents: "hello\nworld\n"
+  });
+
+  router.dispose();
+});
+
+test("MessageRouter rejects read-file path escapes outside workspace root", async () => {
+  const router = new MessageRouter({
+    appServer: null,
+    udsClient: null,
+    workerPath: null,
+    logger: createLogger()
+  });
+
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-read-file-"));
+  await fs.writeFile(path.join(workspaceRoot, "safe.txt"), "ok\n");
+
+  const sent = [];
+  const ws = {
+    readyState: 1,
+    send(payload) {
+      sent.push(JSON.parse(payload));
+    }
+  };
+
+  await router._handleVirtualFetch(ws, "req-7", {
+    requestId: "req-7",
+    method: "POST",
+    url: "vscode://codex/read-file",
+    body: JSON.stringify({
+      params: {
+        workspaceRoot,
+        path: "../escape.txt",
+        hostId: "local"
+      }
+    })
+  });
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].payload.status, 404);
+  assert.deepEqual(JSON.parse(sent[0].payload.bodyJsonString), {
+    contents: ""
+  });
+
+  router.dispose();
+});

@@ -194,6 +194,9 @@
         if (text.includes("sentry-ipc://")) {
           return;
         }
+        if (text.includes("[Statsig]") || text.includes("statsig::")) {
+          return;
+        }
         if (text.includes("ab.chatgpt.com/v1/rgstr")) {
           return;
         }
@@ -220,6 +223,9 @@
           .join(" ");
 
         if (text.includes("Missing `Description` or `aria-describedby={undefined}` for {DialogContent}")) {
+          return;
+        }
+        if (text.includes("[Statsig]") || text.includes("statsig::")) {
           return;
         }
         originalConsoleWarn(...args);
