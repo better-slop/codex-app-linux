@@ -9,6 +9,7 @@
   const CONTEXT_MENU_ROOT_ID = "__codex-webstrap-context-menu-root";
   const CONTEXT_MENU_STYLE_ID = "__codex-webstrap-context-menu-style";
   const MOBILE_STYLE_ID = "__codex-webstrap-mobile-style";
+  const USE_MODEL_SETTINGS_MODULE_PATTERN = /\/assets\/use-model-settings-[^/]+\.js(?:\?.*)?$/;
   const buildInfo =
     window.__codexWebstrapBuildInfo && typeof window.__codexWebstrapBuildInfo === "object"
       ? window.__codexWebstrapBuildInfo
@@ -18,6 +19,7 @@
   let connected = false;
   let reconnectTimer = null;
   let activeContextMenu = null;
+  let sidePanelOpenHelperPromise = null;
   let lastContextMenuPoint = {
     x: Math.floor(window.innerWidth / 2),
     y: Math.floor(window.innerHeight / 2)
@@ -810,6 +812,257 @@
     console.warn("codex-webstrap bridge error", printable);
   }
 
+  function findReactPropertyKey(value, prefix) {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+
+    return Object.keys(value).find((key) => key.startsWith(prefix)) || null;
+  }
+
+  function findClosestReactFiber(element) {
+    let current = element;
+    while (current) {
+      const fiberKey = findReactPropertyKey(current, "__reactFiber$");
+      if (fiberKey && current[fiberKey]) {
+        return current[fiberKey];
+      }
+      current = current.parentElement;
+    }
+    return null;
+  }
+
+  function extractFileReferenceProps(fiber) {
+    const visited = new Set();
+    let current = fiber;
+
+    while (current && !visited.has(current)) {
+      visited.add(current);
+
+      const props = current.memoizedProps;
+      if (
+        props
+        && typeof props === "object"
+        && typeof props.path === "string"
+        && props.path.trim().length > 0
+      ) {
+        return {
+          path: props.path.trim(),
+          cwd: typeof props.cwd === "string" && props.cwd.trim().length > 0 ? props.cwd.trim() : null,
+          hostId: typeof props.hostId === "string" && props.hostId.trim().length > 0 ? props.hostId.trim() : "local",
+          line: Number.isInteger(props.line) ? props.line : null,
+          column: Number.isInteger(props.column) ? props.column : null,
+          endLine: Number.isInteger(props.endLine) ? props.endLine : null
+        };
+      }
+
+      current = current.return;
+    }
+
+    return null;
+  }
+
+  function scanForThreadScope(input, seen, depth = 0) {
+    if (!input || depth > 4) {
+      return null;
+    }
+
+    const inputType = typeof input;
+    if (inputType !== "object" && inputType !== "function") {
+      return null;
+    }
+
+    if (seen.has(input)) {
+      return null;
+    }
+    seen.add(input);
+
+    try {
+      if (
+        typeof input.get === "function"
+        && typeof input.set === "function"
+        && typeof input.watch === "function"
+        && input.value
+        && input.value.routeKind === "local-thread"
+      ) {
+        return input;
+      }
+    } catch {
+      // Ignore inaccessible getters.
+    }
+
+    if (Array.isArray(input)) {
+      for (const value of input) {
+        const found = scanForThreadScope(value, seen, depth + 1);
+        if (found) {
+          return found;
+        }
+      }
+      return null;
+    }
+
+    for (const key of Object.keys(input).slice(0, 20)) {
+      try {
+        const found = scanForThreadScope(input[key], seen, depth + 1);
+        if (found) {
+          return found;
+        }
+      } catch {
+        // Ignore inaccessible getters.
+      }
+    }
+
+    return null;
+  }
+
+  function findThreadScopeForFiber(fiber) {
+    const visitedFibers = new Set();
+    let current = fiber;
+
+    while (current && !visitedFibers.has(current)) {
+      visitedFibers.add(current);
+
+      let hook = current.memoizedState;
+      let hookIndex = 0;
+      while (hook && hookIndex < 40) {
+        const found = scanForThreadScope(hook.memoizedState, new Set());
+        if (found) {
+          return found;
+        }
+        hook = hook.next;
+        hookIndex += 1;
+      }
+
+      current = current.return;
+    }
+
+    return null;
+  }
+
+  function findUseModelSettingsModuleUrl() {
+    const resourceUrls = performance.getEntriesByType("resource")
+      .map((entry) => entry?.name)
+      .filter((value) => typeof value === "string" && value.length > 0);
+    const preloadUrls = Array.from(
+      document.querySelectorAll('link[rel="modulepreload"], script[type="module"]')
+    )
+      .map((node) => node?.href || node?.src || "")
+      .filter((value) => typeof value === "string" && value.length > 0);
+
+    return [...new Set([...resourceUrls, ...preloadUrls])]
+      .find((url) => USE_MODEL_SETTINGS_MODULE_PATTERN.test(url))
+      || null;
+  }
+
+  async function loadSidePanelOpenHelper() {
+    if (!sidePanelOpenHelperPromise) {
+      sidePanelOpenHelperPromise = (async () => {
+        const moduleUrl = findUseModelSettingsModuleUrl();
+        if (!moduleUrl) {
+          throw new Error("use-model-settings module was not loaded");
+        }
+
+        const moduleNamespace = await import(moduleUrl);
+        const helper = Object.values(moduleNamespace).find((value) => {
+          if (typeof value !== "function") {
+            return false;
+          }
+
+          const source = String(value);
+          return source.includes("openInSidePanel")
+            && source.includes("artifactsPaneEnabled")
+            && source.includes("open-file");
+        });
+
+        if (typeof helper !== "function") {
+          throw new Error("Failed to locate side-panel open helper");
+        }
+
+        return helper;
+      })().catch((error) => {
+        sidePanelOpenHelperPromise = null;
+        throw error;
+      });
+    }
+
+    return sidePanelOpenHelperPromise;
+  }
+
+  function resolveChatFileReferenceContext(target) {
+    if (!(target instanceof Element)) {
+      return null;
+    }
+
+    const button = target.closest("button");
+    if (!(button instanceof HTMLButtonElement)) {
+      return null;
+    }
+
+    if (!button.closest("main")) {
+      return null;
+    }
+
+    const fiber = findClosestReactFiber(button);
+    if (!fiber) {
+      return null;
+    }
+
+    const reference = extractFileReferenceProps(fiber);
+    if (!reference) {
+      return null;
+    }
+
+    const scope = findThreadScopeForFiber(fiber);
+    if (!scope) {
+      return null;
+    }
+
+    return {
+      ...reference,
+      scope
+    };
+  }
+
+  async function openChatFileReferenceInSidePanel(context) {
+    const openInSidePanel = await loadSidePanelOpenHelper();
+    openInSidePanel({
+      path: context.path,
+      cwd: context.cwd,
+      hostId: context.hostId,
+      ...context.line == null ? {} : { line: context.line },
+      ...context.column == null ? {} : { column: context.column },
+      ...context.endLine == null ? {} : { endLine: context.endLine },
+      artifactTabsEnabled: false,
+      artifactsPaneEnabled: true,
+      browserSidebarEnabled: false,
+      openInSidePanel: true,
+      scope: context.scope,
+      windowType: "electron"
+    });
+  }
+
+  function installChatFileReferenceBridge() {
+    window.addEventListener("click", (event) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+
+      const context = resolveChatFileReferenceContext(event.target);
+      if (!context) {
+        return;
+      }
+
+      queueMicrotask(() => {
+        openChatFileReferenceInSidePanel(context).catch((error) => {
+          console.warn("codex-webstrap chat file open failed", {
+            path: context.path,
+            error: String(error)
+          });
+        });
+      });
+    }, true);
+  }
+
   function connect() {
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
       return;
@@ -950,6 +1203,7 @@
   window.codexWindowType = "electron";
   window.electronBridge = electronBridge;
   installBrowserCompatibilityShims();
+  installChatFileReferenceBridge();
   ensureMobileStyles();
   installViewportStabilizer();
   autoCollapseSidebarOnMobile();
