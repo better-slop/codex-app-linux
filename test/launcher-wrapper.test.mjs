@@ -78,7 +78,7 @@ test("launcher reports package version without starting Electron", async () => {
     `${JSON.stringify(
       {
         name: "codex-app-linux",
-        version: "1.2.3-launcher.11",
+        version: "1.2.3-launcher.12",
         type: "module",
         codexAppLinux: {
           executableName: "codex-app-linux"
@@ -121,5 +121,5 @@ test("launcher reports package version without starting Electron", async () => {
   });
 
   assert.equal(output.stderr, "");
-  assert.equal(output.stdout.trim(), "1.2.3-launcher.11");
+  assert.equal(output.stdout.trim(), "1.2.3-launcher.12");
 });
