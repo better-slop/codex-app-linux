@@ -83,15 +83,6 @@ npm test
 npm run release:prod
 npm run release:beta
 ```
-
-Manual local build against the golden beta asset:
-
-```bash
-node scripts/release-channel.mjs \
-  --channel beta \
-  --archive "__golden__/Codex (Beta)-darwin-arm64-26.311.30926.zip"
-```
-
 ## Distribution Model
 
 GitHub Releases:
