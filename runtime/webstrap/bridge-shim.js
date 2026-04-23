@@ -971,7 +971,7 @@
           const source = String(value);
           return source.includes("openInSidePanel")
             && source.includes("artifactsPaneEnabled")
-            && source.includes("open-file");
+            && source.includes("windowType");
         });
 
         if (typeof helper !== "function") {
