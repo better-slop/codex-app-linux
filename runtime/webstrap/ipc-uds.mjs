@@ -197,6 +197,15 @@ export class UdsIpcClient extends EventEmitter {
     }
 
     await new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve();
+      };
+
       const socket = net.connect(this.socketPath, () => {
         this.logger.info("UDS connected", { socketPath: this.socketPath });
         this.socket = socket;
@@ -207,12 +216,12 @@ export class UdsIpcClient extends EventEmitter {
         this._initialize()
           .then(() => {
             this.emit("connected", { socketPath: this.socketPath, clientId: this.clientId });
-            resolve();
+            finish();
           })
           .catch((error) => {
             this.logger.warn("UDS initialize failed", { error: toErrorMessage(error) });
             socket.destroy();
-            resolve();
+            finish();
           });
       });
 
@@ -233,6 +242,7 @@ export class UdsIpcClient extends EventEmitter {
       });
 
       socket.on("close", () => {
+        const wasInitialized = this.initialized;
         this.connected = false;
         this.initialized = false;
         this.socket = null;
@@ -242,6 +252,10 @@ export class UdsIpcClient extends EventEmitter {
 
         if (!this.stopped) {
           this._scheduleReconnect();
+        }
+
+        if (!wasInitialized) {
+          finish();
         }
       });
 
