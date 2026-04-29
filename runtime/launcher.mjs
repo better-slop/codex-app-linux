@@ -7,6 +7,7 @@ import {
   resolveCodexCliPath,
   resolveBundlePathsFromBinary
 } from "./lib/linux-desktop.mjs";
+import { printPlusPlusUsage, runCodexPlusPlus } from "./lib/plusplus.mjs";
 
 const argv = process.argv.slice(2);
 
@@ -47,6 +48,19 @@ async function main() {
     return;
   }
 
+  if (argv[0] === "--plusplus" || argv[0] === "plusplus") {
+    const packageData = await readInstalledPackage();
+    const binaryPath = await resolveBinaryPath({
+      packageJson: packageData.packageJson
+    });
+    process.exitCode = await runCodexPlusPlus({
+      binaryPath,
+      args: argv.slice(1),
+      env: process.env
+    });
+    return;
+  }
+
   await launchDesktop(argv);
 }
 
@@ -54,7 +68,10 @@ function printUsage() {
   process.stdout.write(`Usage:\n`);
   process.stdout.write(`  codex-app-linux [desktop-args...]\n`);
   process.stdout.write(`  codex-app-linux web [--port <n>] [--bind <ip>] [--open] [--token-file <path>] [--codex-app <path>] [--dangerously-disable-auth <true|false>]\n`);
+  process.stdout.write(`  codex-app-linux --plusplus <install|status|repair|uninstall|doctor> [codexplusplus-options...]\n`);
   process.stdout.write(`  codex-app-linux --version\n`);
+  process.stdout.write(`\n`);
+  printPlusPlusUsage(process.stdout);
 }
 
 async function launchDesktop(args) {
