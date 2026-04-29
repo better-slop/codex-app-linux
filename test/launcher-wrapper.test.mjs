@@ -234,13 +234,49 @@ test("launcher help advertises plusplus command", async () => {
   assert.match(output.stdout, /codex-app-linux --plusplus <install\|status\|repair\|uninstall\|doctor>/);
 });
 
+test("launcher plusplus help does not resolve desktop package", async () => {
+  const output = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [path.join(process.cwd(), "runtime", "launcher.mjs"), "--plusplus", "--help"], {
+      env: {
+        ...process.env,
+        CODEX_APP_LINUX_PACKAGE_ROOT: path.join(os.tmpdir(), "missing-codex-app-linux-package")
+      },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const stdout = [];
+    const stderr = [];
+
+    child.stdout.on("data", chunk => stdout.push(chunk));
+    child.stderr.on("data", chunk => stderr.push(chunk));
+    child.on("error", reject);
+    child.on("exit", code => {
+      if (code === 0) {
+        resolve({
+          stdout: Buffer.concat(stdout).toString("utf8"),
+          stderr: Buffer.concat(stderr).toString("utf8")
+        });
+        return;
+      }
+
+      reject(
+        new Error(
+          `launcher exited with ${code}: ${Buffer.concat(stderr).toString("utf8")}`
+        )
+      );
+    });
+  });
+
+  assert.equal(output.stderr, "");
+  assert.match(output.stdout, /codex-app-linux --plusplus install/);
+});
+
 test("launcher plusplus install forwards app root to codexplusplus", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-plusplus-run-"));
   const packageRoot = path.join(root, "package");
   const runtimeDir = path.join(packageRoot, "runtime");
   const runtimeLibDir = path.join(runtimeDir, "lib");
   const cacheRoot = path.join(root, "cache");
-  const packageCacheDir = path.join(cacheRoot, "codex-app-linux", "1.2.3-launcher.22");
+  const packageCacheDir = path.join(cacheRoot, "codex-app-linux", "1.2.3-launcher.23");
   const appDir = path.join(packageCacheDir, "linux-unpacked");
   const binDir = path.join(root, "bin");
   const argsPath = path.join(root, "plusplus-args.json");
@@ -277,7 +313,7 @@ fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(
     `${JSON.stringify(
       {
         name: "codex-app-linux",
-        version: "1.2.3-launcher.22",
+        version: "1.2.3-launcher.23",
         type: "module",
         codexAppLinux: {
           executableName: "codex-app-linux",

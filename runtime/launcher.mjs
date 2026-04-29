@@ -49,6 +49,11 @@ async function main() {
   }
 
   if (argv[0] === "--plusplus" || argv[0] === "plusplus") {
+    if (argv[1] === "--help" || argv[1] === "-h" || argv[1] === "help") {
+      printPlusPlusUsage();
+      return;
+    }
+
     const packageData = await readInstalledPackage();
     const binaryPath = await resolveBinaryPath({
       packageJson: packageData.packageJson
