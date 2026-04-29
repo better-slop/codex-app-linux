@@ -16,6 +16,7 @@ module.exports = async function afterPack(context) {
   const binaryPath = path.join(context.appOutDir, `${executableName}-bin`);
 
   if (await isWrappedLauncher(launcherPath, binaryPath)) {
+    await ensureCodexCompatibilitySymlink(context.appOutDir, path.basename(binaryPath));
     return;
   }
 
@@ -24,6 +25,7 @@ module.exports = async function afterPack(context) {
   await fs.writeFile(launcherPath, wrapperScript(path.basename(binaryPath)), {
     mode: 0o755
   });
+  await ensureCodexCompatibilitySymlink(context.appOutDir, path.basename(binaryPath));
 };
 
 async function copyExtraResources(appOutDir) {
@@ -49,6 +51,15 @@ async function copyExtraResources(appOutDir) {
 }
 
 module.exports.copyExtraResources = copyExtraResources;
+
+async function ensureCodexCompatibilitySymlink(appOutDir, binaryName) {
+  const linkPath = path.join(appOutDir, "codex");
+
+  await fs.rm(linkPath, { force: true });
+  await fs.symlink(binaryName, linkPath);
+}
+
+module.exports.ensureCodexCompatibilitySymlink = ensureCodexCompatibilitySymlink;
 
 async function isWrappedLauncher(launcherPath, binaryPath) {
   try {

@@ -92,6 +92,31 @@ test("afterPack extra resource copy preserves Linux app.asar.unpacked", async ()
   );
 });
 
+test("afterPack creates codex compatibility symlink to electron binary", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-after-pack-symlink-"));
+  const appOutDir = path.join(root, "linux-unpacked");
+  const executableName = "codex-app-linux-beta";
+
+  await fs.mkdir(appOutDir, { recursive: true });
+  await fs.writeFile(path.join(appOutDir, executableName), "#!/bin/sh\n", { mode: 0o755 });
+
+  await afterPack({
+    electronPlatformName: "linux",
+    appOutDir,
+    packager: {
+      executableName,
+      appInfo: {
+        productFilename: executableName
+      }
+    }
+  });
+
+  assert.equal(
+    await fs.readlink(path.join(appOutDir, "codex")),
+    `${executableName}-bin`
+  );
+});
+
 test("launcher reports package version without starting Electron", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-version-"));
   const packageRoot = path.join(root, "package");
