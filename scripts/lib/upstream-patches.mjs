@@ -10,11 +10,11 @@ const linuxOpenTargetDefinitions = openCommandName => [
   "__codexLinuxOpenTargetNvimArgs=(e,t)=>t?[`+call cursor(${t.line},${t.column})`,e]:[e]",
   "__codexLinuxOpenTargetNvimCommand=(e,n,r)=>`${t.En(e)} ${t.Tn(__codexLinuxOpenTargetNvimArgs(n,r))}`",
   `__codexLinuxOpenTargetRunNvim=async({command:e,path:t,location:n})=>{let r=__codexLinuxOpenTargetTerminal();if(!r)throw Error(\`No terminal emulator found for Neovim\`);await ${openCommandName}(r.command,r.args(__codexLinuxOpenTargetNvimCommand(e,t,n)))}`,
-  "__codexLinuxVSCode=jl({id:`vscode`,label:`VS Code`,icon:`apps/vscode.png`,kind:`editor`,linux:{detect:()=>W(`code`),args:__codexLinuxOpenTargetGotoArgs}})",
-  "__codexLinuxVSCodeInsiders=jl({id:`vscodeInsiders`,label:`VS Code Insiders`,icon:`apps/vscode-insiders.png`,kind:`editor`,linux:{detect:()=>W(`code-insiders`),args:__codexLinuxOpenTargetGotoArgs}})",
-  "__codexLinuxCursor=jl({id:`cursor`,label:`Cursor`,icon:`apps/cursor.png`,kind:`editor`,linux:{detect:()=>W(`cursor`),args:__codexLinuxOpenTargetGotoArgs}})",
-  "__codexLinuxZed=jl({id:`zed`,label:`Zed`,icon:`apps/zed.png`,kind:`editor`,linux:{detect:()=>W(`zed`),args:__codexLinuxOpenTargetColonArgs}})",
-  "__codexLinuxNvim=jl({id:`nvim`,label:`Neovim`,icon:`apps/terminal.png`,kind:`editor`,linux:{detect:()=>W(`nvim`),args:__codexLinuxOpenTargetNvimArgs,open:__codexLinuxOpenTargetRunNvim}})"
+  "__codexLinuxVSCode={id:`vscode`,platforms:{linux:{label:`VS Code`,icon:`apps/vscode.png`,kind:`editor`,detect:()=>W(`code`),args:__codexLinuxOpenTargetGotoArgs}}}",
+  "__codexLinuxVSCodeInsiders={id:`vscodeInsiders`,platforms:{linux:{label:`VS Code Insiders`,icon:`apps/vscode-insiders.png`,kind:`editor`,detect:()=>W(`code-insiders`),args:__codexLinuxOpenTargetGotoArgs}}}",
+  "__codexLinuxCursor={id:`cursor`,platforms:{linux:{label:`Cursor`,icon:`apps/cursor.png`,kind:`editor`,detect:()=>W(`cursor`),args:__codexLinuxOpenTargetGotoArgs}}}",
+  "__codexLinuxZed={id:`zed`,platforms:{linux:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:()=>W(`zed`),args:__codexLinuxOpenTargetColonArgs}}}",
+  "__codexLinuxNvim={id:`nvim`,platforms:{linux:{label:`Neovim`,icon:`apps/terminal.png`,kind:`editor`,detect:()=>W(`nvim`),args:__codexLinuxOpenTargetNvimArgs,open:__codexLinuxOpenTargetRunNvim}}}"
 ].join(",");
 
 export async function patchUpstreamApp(stageAppDir) {
@@ -55,7 +55,16 @@ export function patchLinuxOpenTargetsSource(source) {
     patched = replaceOnce(patched, openTargetMapAnchor, patchedOpenTargetMap);
   }
 
+  patched = patchOpenTargetPlatformLookup(patched);
+
   return patched;
+}
+
+function patchOpenTargetPlatformLookup(source) {
+  return source.replaceAll(
+    "let n=t.platforms[e];return n",
+    "let n=t.platforms?.[e];return n"
+  );
 }
 
 function findOpenTargetRegistry(source) {
