@@ -108,6 +108,15 @@ jobs:
             --aur-package-name "${{ steps.meta.outputs.aur_package_name }}" \
             > dist/prod-release-notes.md
 
+      - name: Refuse immutable npm version overwrite
+        if: steps.meta.outputs.skipped != 'true'
+        run: |
+          if npm view "codex-app-linux@${{ steps.meta.outputs.package_version }}" version >/dev/null 2>&1; then
+            echo "::error::npm package version already exists; refusing to clobber matching GitHub release assets"
+            echo "::error::bump CODEX_PACKAGE_REVISION before rebuilding this version"
+            exit 1
+          fi
+
       - name: Upload workflow artifacts
         if: steps.meta.outputs.skipped != 'true'
         uses: actions/upload-artifact@v4
@@ -273,6 +282,15 @@ jobs:
             --package-version "${{ steps.meta.outputs.package_version }}" \
             --aur-package-name "${{ steps.meta.outputs.aur_package_name }}" \
             > dist/beta-release-notes.md
+
+      - name: Refuse immutable npm version overwrite
+        if: steps.meta.outputs.skipped != 'true'
+        run: |
+          if npm view "codex-app-linux@${{ steps.meta.outputs.package_version }}" version >/dev/null 2>&1; then
+            echo "::error::npm package version already exists; refusing to clobber matching GitHub release assets"
+            echo "::error::bump CODEX_PACKAGE_REVISION before rebuilding this version"
+            exit 1
+          fi
 
       - name: Upload workflow artifacts
         if: steps.meta.outputs.skipped != 'true'
