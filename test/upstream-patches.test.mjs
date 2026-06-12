@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { patchLinuxOpenTargetsSource } from "../scripts/lib/upstream-patches.mjs";
+import {
+  patchDisableTransparencySource,
+  patchLinuxOpenTargetsSource
+} from "../scripts/lib/upstream-patches.mjs";
 
 test("patchLinuxOpenTargetsSource adds Linux editor targets and exposes app paths", () => {
   const source = [
@@ -108,4 +111,34 @@ test("patchLinuxOpenTargetsSource preserves native target spread variable", () =
     /appPath:process\.platform===`linux`&&r===`editor`&&s\.has\(e\)\?Ld\(\)\.get\(e\)\?\?null:null/
   );
   assert.match(patched, /\}\)\),\.\.\.h\]/);
+});
+
+test("patchDisableTransparencySource disables Linux BrowserWindow transparency and background", () => {
+  const source = [
+    "function A2(e){return e===`avatarOverlay`||e===`browserCommentPopup`}",
+    "function I2({platform:e,appearance:t,opaqueWindowsEnabled:n,prefersDarkColors:r}){return n&&!A2(t)&&(e===`darwin`||e===`win32`)?{backgroundColor:r?a2:o2,backgroundMaterial:e===`win32`?`none`:null}:e===`win32`&&!A2(t)?{backgroundColor:i2,backgroundMaterial:`mica`}:{backgroundColor:i2,backgroundMaterial:null}}",
+    "function R2({alwaysOnTop:e,hasShadow:t=!0,platform:n,resizable:r,thickFrame:i,transparent:a=!0}){return{frame:!1,transparent:a,hasShadow:t,resizable:r,minimizable:!1,maximizable:!1,fullscreenable:!1,skipTaskbar:!0,...e?{alwaysOnTop:!0}:{},...n===`win32`?{accentColor:!1,roundedCorners:!1,...i==null?{}:{thickFrame:i}}:{},...n===`darwin`?{type:`panel`}:{}}}",
+    "function z2({appearance:e,platform:n}){switch(e){case`browserCommentPopup`:return R2({hasShadow:!1,platform:n,resizable:!1,thickFrame:!1,transparent:!0});case`avatarOverlay`:return R2({platform:n,resizable:!1})}}"
+  ].join(";");
+
+  const patched = patchDisableTransparencySource(source);
+
+  assert.match(patched, /backgroundColor:e===`linux`\?\(r\?a2:o2\):i2,backgroundMaterial:null/);
+  assert.doesNotMatch(patched, /\{backgroundColor:i2,backgroundMaterial:null\}/);
+  assert.match(patched, /transparent:n===`linux`\?!1:a,hasShadow:t/);
+  assert.doesNotMatch(patched, /return\{frame:!1,transparent:a,hasShadow:t/);
+});
+
+test("patchDisableTransparencySource is idempotent", () => {
+  const source = [
+    "function A2(e){return e===`avatarOverlay`||e===`browserCommentPopup`}",
+    "function I2({platform:e,appearance:t,opaqueWindowsEnabled:n,prefersDarkColors:r}){return n&&!A2(t)&&(e===`darwin`||e===`win32`)?{backgroundColor:r?a2:o2,backgroundMaterial:e===`win32`?`none`:null}:e===`win32`&&!A2(t)?{backgroundColor:i2,backgroundMaterial:`mica`}:{backgroundColor:i2,backgroundMaterial:null}}",
+    "function R2({alwaysOnTop:e,hasShadow:t=!0,platform:n,resizable:r,thickFrame:i,transparent:a=!0}){return{frame:!1,transparent:a,hasShadow:t,resizable:r,minimizable:!1,maximizable:!1,fullscreenable:!1,skipTaskbar:!0,...e?{alwaysOnTop:!0}:{},...n===`win32`?{accentColor:!1,roundedCorners:!1,...i==null?{}:{thickFrame:i}}:{},...n===`darwin`?{type:`panel`}:{}}}",
+    "function z2({appearance:e,platform:n}){switch(e){case`browserCommentPopup`:return R2({hasShadow:!1,platform:n,resizable:!1,thickFrame:!1,transparent:!0});case`avatarOverlay`:return R2({platform:n,resizable:!1})}}"
+  ].join(";");
+
+  const patched = patchDisableTransparencySource(source);
+  const repatched = patchDisableTransparencySource(patched);
+
+  assert.equal(repatched, patched);
 });

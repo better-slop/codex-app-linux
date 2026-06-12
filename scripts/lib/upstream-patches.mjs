@@ -26,13 +26,22 @@ export async function patchUpstreamApp(stageAppDir) {
 
   const mainBundlePath = path.join(buildDir, mainBundleName);
   const source = await fs.readFile(mainBundlePath, "utf8");
-  const patched = patchLinuxOpenTargetsSource(source);
+  const patched = patchUpstreamMainSource(source);
 
   if (patched === source) {
     return;
   }
 
   await fs.writeFile(mainBundlePath, patched);
+}
+
+export function patchUpstreamMainSource(source) {
+  let patched = source;
+
+  patched = patchLinuxOpenTargetsSource(patched);
+  patched = patchDisableTransparencySource(patched);
+
+  return patched;
 }
 
 export function patchLinuxOpenTargetsSource(source) {
@@ -52,6 +61,74 @@ export function patchLinuxOpenTargetsSource(source) {
   patched = patchOpenTargetPlatformLookup(patched);
 
   return patched;
+}
+
+export function patchDisableTransparencySource(source) {
+  let patched = source;
+
+  patched = patchLinuxWindowBackground(patched);
+  patched = patchLinuxWindowTransparency(patched);
+
+  return patched;
+}
+
+function patchLinuxWindowBackground(source) {
+  if (
+    /backgroundColor:[A-Za-z_$][\w$]*===`linux`\?\([A-Za-z_$][\w$]*\?[A-Za-z_$][\w$]*:[A-Za-z_$][\w$]*\):[A-Za-z_$][\w$]*,backgroundMaterial:null/.test(source)
+  ) {
+    return source;
+  }
+
+  const match = source.match(
+    /function ([A-Za-z_$][\w$]*)\(\{platform:([A-Za-z_$][\w$]*),appearance:([A-Za-z_$][\w$]*),opaqueWindowsEnabled:([A-Za-z_$][\w$]*),prefersDarkColors:([A-Za-z_$][\w$]*)\}\)\{return \4&&!([A-Za-z_$][\w$]*)\(\3\)&&\(\2===`darwin`\|\|\2===`win32`\)\?\{backgroundColor:\5\?([A-Za-z_$][\w$]*):([A-Za-z_$][\w$]*),backgroundMaterial:\2===`win32`\?`none`:null\}:\2===`win32`&&!\6\(\3\)\?\{backgroundColor:([A-Za-z_$][\w$]*),backgroundMaterial:`mica`\}:\{backgroundColor:([A-Za-z_$][\w$]*),backgroundMaterial:null\}\}/
+  );
+
+  if (!match) {
+    throw new Error("Unable to apply upstream patch; missing window background helper");
+  }
+
+  const [
+    anchor,
+    ,
+    platformVar,
+    ,
+    ,
+    prefersDarkVar,
+    ,
+    darkColorVar,
+    lightColorVar,
+    ,
+    fallbackColorVar
+  ] = match;
+  const fallback = `{backgroundColor:${fallbackColorVar},backgroundMaterial:null}`;
+  const replacement = anchor.replace(
+    fallback,
+    `{backgroundColor:${platformVar}===\`linux\`?(${prefersDarkVar}?${darkColorVar}:${lightColorVar}):${fallbackColorVar},backgroundMaterial:null}`
+  );
+
+  return replaceOnce(source, anchor, replacement);
+}
+
+function patchLinuxWindowTransparency(source) {
+  if (/transparent:[A-Za-z_$][\w$]*===`linux`\?!1:[A-Za-z_$][\w$]*,hasShadow:/.test(source)) {
+    return source;
+  }
+
+  const match = source.match(
+    /function ([A-Za-z_$][\w$]*)\(\{alwaysOnTop:([A-Za-z_$][\w$]*),hasShadow:([A-Za-z_$][\w$]*)=!0,platform:([A-Za-z_$][\w$]*),resizable:([A-Za-z_$][\w$]*),thickFrame:([A-Za-z_$][\w$]*),transparent:([A-Za-z_$][\w$]*)=!0\}\)\{return\{frame:!1,transparent:\7,hasShadow:\3,/
+  );
+
+  if (!match) {
+    throw new Error("Unable to apply upstream patch; missing window transparency helper");
+  }
+
+  const [anchor, , , shadowVar, platformVar, , , transparentVar] = match;
+  const replacement = anchor.replace(
+    `transparent:${transparentVar},hasShadow:${shadowVar},`,
+    `transparent:${platformVar}===\`linux\`?!1:${transparentVar},hasShadow:${shadowVar},`
+  );
+
+  return replaceOnce(source, anchor, replacement);
 }
 
 function patchOpenTargetMap(source) {
