@@ -142,6 +142,23 @@ test("patchDisableTransparencySource accepts opaque window surface helper name",
   assert.match(patched, /transparent:n===`linux`\?!1:a,hasShadow:t/);
 });
 
+test("patchDisableTransparencySource patches background helper by AST shape", () => {
+  const source = [
+    "function skip(kind) { return kind === `avatarOverlay`; }",
+    "function backdrop({ appearance: kind, prefersDarkColors: dark, platform: os, opaqueWindowSurfaceEnabled: opaque }) {",
+    "  return opaque ? { backgroundMaterial: os === `win32` ? `none` : null, backgroundColor: dark ? DARK : LIGHT }",
+    "    : os === `win32` && !skip(kind) ? { backgroundMaterial: `mica`, backgroundColor: WIN }",
+    "    : { backgroundMaterial: null, backgroundColor: FALLBACK };",
+    "}",
+    "function frame({alwaysOnTop:e,hasShadow:t=!0,platform:n,resizable:r,thickFrame:i,transparent:a=!0}){return{frame:!1,transparent:a,hasShadow:t,resizable:r,minimizable:!1,maximizable:!1,fullscreenable:!1,skipTaskbar:!0}}"
+  ].join("\n");
+
+  const patched = patchDisableTransparencySource(source);
+
+  assert.match(patched, /backgroundMaterial: null, backgroundColor: os===`linux`\?\(dark\?DARK:LIGHT\):FALLBACK/);
+  assert.match(patched, /transparent:n===`linux`\?!1:a,hasShadow:t/);
+});
+
 test("patchDisableTransparencySource is idempotent", () => {
   const source = [
     "function A2(e){return e===`avatarOverlay`||e===`browserCommentPopup`}",
