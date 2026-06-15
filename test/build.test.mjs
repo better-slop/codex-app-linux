@@ -139,3 +139,58 @@ test("patchBetterSqlite3NativeSource updates V8 external pointer calls", async (
     /\t\tnullptr,\n\t\tdata/
   );
 });
+
+test("patchBetterSqlite3NativeSource updates newer better-sqlite3 external helpers", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-native-test-"));
+  const packageDir = path.join(root, "better-sqlite3");
+  const utilDir = path.join(packageDir, "src", "util");
+  const srcDir = path.join(packageDir, "src");
+
+  await fs.mkdir(utilDir, { recursive: true });
+  await fs.writeFile(
+    path.join(utilDir, "macros.cpp"),
+    [
+      "#define OnlyIsolate info.GetIsolate()",
+      "#define OnlyContext isolate->GetCurrentContext()",
+      "#if defined(NODE_MODULE_VERSION) && NODE_MODULE_VERSION >= 146",
+      "#define EXTERNAL_NEW(isolate, value) v8::External::New((isolate), (value), 0)",
+      "#define EXTERNAL_VALUE(value) (value)->Value(0)",
+      "#else",
+      "#define EXTERNAL_NEW(isolate, value) v8::External::New((isolate), (value))",
+      "#define EXTERNAL_VALUE(value) (value)->Value()",
+      "#endif",
+      "#define OnlyAddon static_cast<Addon*>(EXTERNAL_VALUE(info.Data().As<v8::External>()))",
+      "#define UseAddon Addon* addon = OnlyAddon"
+    ].join("\n")
+  );
+  await fs.writeFile(
+    path.join(utilDir, "helpers.cpp"),
+    [
+      "recv->InstanceTemplate()->SetNativeDataProperty(",
+      "\t\tInternalizedFromLatin1(isolate, name),",
+      "\t\tfunc,",
+      "\t\tnullptr,",
+      "\t\tdata",
+      "\t);"
+    ].join("\n")
+  );
+  await fs.writeFile(
+    path.join(srcDir, "better_sqlite3.cpp"),
+    "v8::Local<v8::External> data = EXTERNAL_NEW(isolate, addon);"
+  );
+
+  await patchBetterSqlite3NativeSource(packageDir);
+
+  assert.match(
+    await fs.readFile(path.join(utilDir, "macros.cpp"), "utf8"),
+    /BETTER_SQLITE3_EXTERNAL_VALUE\(info\.Data\(\)\.As<v8::External>\(\)\)/
+  );
+  assert.match(
+    await fs.readFile(path.join(srcDir, "better_sqlite3.cpp"), "utf8"),
+    /BETTER_SQLITE3_EXTERNAL_NEW\(isolate, addon\)/
+  );
+  assert.match(
+    await fs.readFile(path.join(utilDir, "helpers.cpp"), "utf8"),
+    /\t\tnullptr,\n\t\tdata/
+  );
+});
