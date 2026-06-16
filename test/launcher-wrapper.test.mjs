@@ -171,7 +171,7 @@ test("launcher reports package version without starting Electron", async () => {
     child.stdout.on("data", chunk => stdout.push(chunk));
     child.stderr.on("data", chunk => stderr.push(chunk));
     child.on("error", reject);
-    child.on("exit", code => {
+    child.on("close", code => {
       if (code === 0) {
         resolve({
           stdout: Buffer.concat(stdout).toString("utf8"),
@@ -216,7 +216,7 @@ test("launcher help advertises plusplus command", async () => {
     child.stdout.on("data", chunk => stdout.push(chunk));
     child.stderr.on("data", chunk => stderr.push(chunk));
     child.on("error", reject);
-    child.on("exit", code => {
+    child.on("close", code => {
       if (code === 0) {
         resolve({
           stdout: Buffer.concat(stdout).toString("utf8"),
@@ -252,7 +252,7 @@ test("launcher plusplus help does not resolve desktop package", async () => {
     child.stdout.on("data", chunk => stdout.push(chunk));
     child.stderr.on("data", chunk => stderr.push(chunk));
     child.on("error", reject);
-    child.on("exit", code => {
+    child.on("close", code => {
       if (code === 0) {
         resolve({
           stdout: Buffer.concat(stdout).toString("utf8"),
@@ -348,7 +348,7 @@ fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(
     child.stdout.on("data", chunk => stdout.push(chunk));
     child.stderr.on("data", chunk => stderr.push(chunk));
     child.on("error", reject);
-    child.on("exit", code => {
+    child.on("close", code => {
       if (code === 0) {
         resolve({
           stdout: Buffer.concat(stdout).toString("utf8"),

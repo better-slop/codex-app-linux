@@ -129,6 +129,36 @@ test("patchDisableTransparencySource disables Linux BrowserWindow transparency a
   assert.doesNotMatch(patched, /return\{frame:!1,transparent:a,hasShadow:t/);
 });
 
+test("patchDisableTransparencySource accepts opaque window surface helper name", () => {
+  const source = [
+    "function C6(e){return e===`avatarOverlay`||e===`browserCommentPopup`}",
+    "function k6({platform:e,appearance:t,opaqueWindowSurfaceEnabled:n,prefersDarkColors:r}){return n?{backgroundColor:r?Q3:$3,backgroundMaterial:e===`win32`?`none`:null}:e===`win32`&&!C6(t)?{backgroundColor:Z3,backgroundMaterial:`mica`}:{backgroundColor:Z3,backgroundMaterial:null}}",
+    "function j6({alwaysOnTop:e,hasShadow:t=!0,platform:n,resizable:r,thickFrame:i,transparent:a=!0}){return{frame:!1,transparent:a,hasShadow:t,resizable:r,minimizable:!1,maximizable:!1,fullscreenable:!1,skipTaskbar:!0,...e?{alwaysOnTop:!0}:{},...n===`win32`?{accentColor:!1,roundedCorners:!1,...i==null?{}:{thickFrame:i}}:{},...n===`darwin`?{type:`panel`}:{}}}"
+  ].join(";");
+
+  const patched = patchDisableTransparencySource(source);
+
+  assert.match(patched, /backgroundColor:e===`linux`\?\(r\?Q3:\$3\):Z3,backgroundMaterial:null/);
+  assert.match(patched, /transparent:n===`linux`\?!1:a,hasShadow:t/);
+});
+
+test("patchDisableTransparencySource patches background helper by AST shape", () => {
+  const source = [
+    "function skip(kind) { return kind === `avatarOverlay`; }",
+    "function backdrop({ appearance: kind, prefersDarkColors: dark, platform: os, opaqueWindowSurfaceEnabled: opaque }) {",
+    "  return opaque ? { backgroundMaterial: os === `win32` ? `none` : null, backgroundColor: dark ? DARK : LIGHT }",
+    "    : os === `win32` && !skip(kind) ? { backgroundMaterial: `mica`, backgroundColor: WIN }",
+    "    : { backgroundMaterial: null, backgroundColor: FALLBACK };",
+    "}",
+    "function frame({alwaysOnTop:e,hasShadow:t=!0,platform:n,resizable:r,thickFrame:i,transparent:a=!0}){return{frame:!1,transparent:a,hasShadow:t,resizable:r,minimizable:!1,maximizable:!1,fullscreenable:!1,skipTaskbar:!0}}"
+  ].join("\n");
+
+  const patched = patchDisableTransparencySource(source);
+
+  assert.match(patched, /backgroundMaterial: null, backgroundColor: os===`linux`\?\(dark\?DARK:LIGHT\):FALLBACK/);
+  assert.match(patched, /transparent:n===`linux`\?!1:a,hasShadow:t/);
+});
+
 test("patchDisableTransparencySource is idempotent", () => {
   const source = [
     "function A2(e){return e===`avatarOverlay`||e===`browserCommentPopup`}",

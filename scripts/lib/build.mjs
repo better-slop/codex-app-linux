@@ -363,43 +363,106 @@ export async function patchBetterSqlite3NativeSource(packageDir) {
   const entrypointPath = path.join(packageDir, "src", "better_sqlite3.cpp");
 
   let macros = await fs.readFile(macrosPath, "utf8");
-  macros = replaceOnce(
-    macros,
-    "#define OnlyIsolate info.GetIsolate()\n#define OnlyContext isolate->GetCurrentContext()\n#define OnlyAddon static_cast<Addon*>(info.Data().As<v8::External>()->Value())",
-    [
-      "#define OnlyIsolate info.GetIsolate()",
-      "#define OnlyContext isolate->GetCurrentContext()",
-      "",
-      "// Electron 42 enables V8 external pointer sandboxing; v8::External pointers need tags.",
-      "// See V8's v8-external.h kExternalPointerTypeTagDefault notes.",
-      "#if defined(V8_ENABLE_SANDBOX)",
-      "#define BETTER_SQLITE3_EXTERNAL_NEW(isolate, value) v8::External::New(isolate, value, v8::kExternalPointerTypeTagDefault)",
-      "#define BETTER_SQLITE3_EXTERNAL_VALUE(external) (external)->Value(v8::kExternalPointerTypeTagDefault)",
-      "#else",
-      "#define BETTER_SQLITE3_EXTERNAL_NEW(isolate, value) v8::External::New(isolate, value)",
-      "#define BETTER_SQLITE3_EXTERNAL_VALUE(external) (external)->Value()",
-      "#endif",
-      "",
-      "#define OnlyAddon static_cast<Addon*>(BETTER_SQLITE3_EXTERNAL_VALUE(info.Data().As<v8::External>()))"
-    ].join("\n")
-  );
+  macros = patchBetterSqlite3ExternalPointerMacros(macros);
   await fs.writeFile(macrosPath, macros);
 
   let entrypoint = await fs.readFile(entrypointPath, "utf8");
-  entrypoint = replaceOnce(
-    entrypoint,
-    "v8::Local<v8::External> data = v8::External::New(isolate, addon);",
-    "v8::Local<v8::External> data = BETTER_SQLITE3_EXTERNAL_NEW(isolate, addon);"
-  );
+  entrypoint = patchBetterSqlite3ExternalPointerEntrypoint(entrypoint);
   await fs.writeFile(entrypointPath, entrypoint);
 
   let helpers = await fs.readFile(helpersPath, "utf8");
-  helpers = replaceOnce(
-    helpers,
+  helpers = patchBetterSqlite3SetNativeDataProperty(helpers);
+  await fs.writeFile(helpersPath, helpers);
+}
+
+function patchBetterSqlite3ExternalPointerMacros(source) {
+  if (source.includes("#define BETTER_SQLITE3_EXTERNAL_NEW")) {
+    return source;
+  }
+
+  const externalPointerMacros = [
+    "// Electron 42 enables V8 external pointer sandboxing; v8::External pointers need tags.",
+    "// See V8's v8-external.h kExternalPointerTypeTagDefault notes.",
+    "#if defined(V8_ENABLE_SANDBOX)",
+    "#define BETTER_SQLITE3_EXTERNAL_NEW(isolate, value) v8::External::New(isolate, value, v8::kExternalPointerTypeTagDefault)",
+    "#define BETTER_SQLITE3_EXTERNAL_VALUE(external) (external)->Value(v8::kExternalPointerTypeTagDefault)",
+    "#else",
+    "#define BETTER_SQLITE3_EXTERNAL_NEW(isolate, value) v8::External::New(isolate, value)",
+    "#define BETTER_SQLITE3_EXTERNAL_VALUE(external) (external)->Value()",
+    "#endif"
+  ].join("\n");
+
+  const onlyAddon = "#define OnlyAddon static_cast<Addon*>(BETTER_SQLITE3_EXTERNAL_VALUE(info.Data().As<v8::External>()))";
+  const legacyAnchor = [
+    "#define OnlyIsolate info.GetIsolate()",
+    "#define OnlyContext isolate->GetCurrentContext()",
+    "#define OnlyAddon static_cast<Addon*>(info.Data().As<v8::External>()->Value())"
+  ].join("\n");
+  const currentAnchor = [
+    "#if defined(NODE_MODULE_VERSION) && NODE_MODULE_VERSION >= 146",
+    "#define EXTERNAL_NEW(isolate, value) v8::External::New((isolate), (value), 0)",
+    "#define EXTERNAL_VALUE(value) (value)->Value(0)",
+    "#else",
+    "#define EXTERNAL_NEW(isolate, value) v8::External::New((isolate), (value))",
+    "#define EXTERNAL_VALUE(value) (value)->Value()",
+    "#endif",
+    "#define OnlyAddon static_cast<Addon*>(EXTERNAL_VALUE(info.Data().As<v8::External>()))"
+  ].join("\n");
+
+  if (source.includes(legacyAnchor)) {
+    return replaceOnce(
+      source,
+      legacyAnchor,
+      [
+        "#define OnlyIsolate info.GetIsolate()",
+        "#define OnlyContext isolate->GetCurrentContext()",
+        "",
+        externalPointerMacros,
+        "",
+        onlyAddon
+      ].join("\n")
+    );
+  }
+
+  if (source.includes(currentAnchor)) {
+    return replaceOnce(source, currentAnchor, [externalPointerMacros, onlyAddon].join("\n"));
+  }
+
+  throw new Error("Unable to patch better-sqlite3 external pointer macros; unknown source shape");
+}
+
+function patchBetterSqlite3ExternalPointerEntrypoint(source) {
+  const replacement = "v8::Local<v8::External> data = BETTER_SQLITE3_EXTERNAL_NEW(isolate, addon);";
+
+  if (source.includes(replacement)) {
+    return source;
+  }
+
+  if (source.includes("v8::Local<v8::External> data = EXTERNAL_NEW(isolate, addon);")) {
+    return replaceOnce(
+      source,
+      "v8::Local<v8::External> data = EXTERNAL_NEW(isolate, addon);",
+      replacement
+    );
+  }
+
+  return replaceOnce(
+    source,
+    "v8::Local<v8::External> data = v8::External::New(isolate, addon);",
+    replacement
+  );
+}
+
+function patchBetterSqlite3SetNativeDataProperty(source) {
+  if (source.includes("\t\tfunc,\n\t\tnullptr,\n\t\tdata")) {
+    return source;
+  }
+
+  return replaceOnce(
+    source,
     "\t\tfunc,\n\t\t0,\n\t\tdata",
     "\t\tfunc,\n\t\tnullptr,\n\t\tdata"
   );
-  await fs.writeFile(helpersPath, helpers);
 }
 
 async function buildLinuxArtifacts({
