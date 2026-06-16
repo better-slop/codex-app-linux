@@ -7,6 +7,7 @@ import { pipeline } from "node:stream/promises";
 
 import {
   assetBaseName,
+  cacheRoot,
   channelPaths,
   defaultLauncherCommand,
   defaultPackageName,
@@ -23,12 +24,23 @@ const skippedLinuxResourceNames = new Set([
   "app.asar.unpacked",
   "codex",
   "codex_chronicle",
+  "cua_node",
   "native",
   "node",
   "node_repl",
   "rg"
 ]);
 const skippedBundledPluginNames = new Set(["computer-use", "latex-tectonic"]);
+const primaryRuntime = {
+  url:
+    process.env.CODEX_PRIMARY_RUNTIME_URL ||
+    "https://persistent.oaistatic.com/codex-primary-runtime/26.426.12240/codex-primary-runtime-linux-x64-26.426.12240.tar.xz",
+  sha256:
+    process.env.CODEX_PRIMARY_RUNTIME_SHA256 ||
+    "db5624eb6efa36b66ec6f6dd0488cefb966e49636862aab6209a4336c1ca90c4",
+  nodeEntry: "codex-primary-runtime/dependencies/node/bin/node",
+  nodeReplEntry: "codex-primary-runtime/dependencies/bin/node_repl"
+};
 
 export async function buildChannel({
   channel,
@@ -64,6 +76,7 @@ export async function buildChannel({
   ]);
   await patchUpstreamApp(paths.stageAppDir);
   await stagePackagedResources(appResourcesDir, paths.stageResourcesDir);
+  await stageLinuxNodeReplRuntime(paths.stageResourcesDir);
 
   const effectiveUpstream = await normalizeStagePackage(
     paths.stageAppDir,
@@ -525,6 +538,76 @@ export async function stagePackagedResources(resourcesDir, targetDir) {
   }
 }
 
+export async function stageLinuxNodeReplRuntime(targetDir) {
+  const archivePath = await fetchVerifiedArchive(
+    primaryRuntime.url,
+    primaryRuntime.sha256,
+    path.join(cacheRoot, "primary-runtime")
+  );
+  const extractDir = path.join(targetDir, ".primary-runtime-extract");
+  const extractedRoot = path.join(extractDir, "codex-primary-runtime", "dependencies");
+  const sourceNode = path.join(extractedRoot, "node", "bin", "node");
+  const sourceNodeRepl = path.join(extractedRoot, "bin", "node_repl");
+
+  await ensureEmptyDir(extractDir);
+  await run([
+    "tar",
+    "-xJf",
+    archivePath,
+    "-C",
+    extractDir,
+    primaryRuntime.nodeEntry,
+    primaryRuntime.nodeReplEntry
+  ]);
+
+  await installLinuxRuntimeExecutable(sourceNode, path.join(targetDir, "node"));
+  await installLinuxRuntimeExecutable(sourceNodeRepl, path.join(targetDir, "node_repl"));
+  await ensureDir(path.join(targetDir, "cua_node", "bin"));
+  await installLinuxRuntimeExecutable(
+    sourceNode,
+    path.join(targetDir, "cua_node", "bin", "node")
+  );
+  await installLinuxRuntimeExecutable(
+    sourceNodeRepl,
+    path.join(targetDir, "cua_node", "bin", "node_repl")
+  );
+  await fs.rm(extractDir, { recursive: true, force: true });
+}
+
+async function fetchVerifiedArchive(url, expectedSha256, cacheDir) {
+  await ensureDir(cacheDir);
+
+  const archivePath = path.join(
+    cacheDir,
+    decodeURIComponent(new URL(url).pathname.split("/").at(-1))
+  );
+
+  try {
+    await verifyFileSha256(archivePath, expectedSha256);
+    return archivePath;
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      await fs.rm(archivePath, { force: true });
+    }
+  }
+
+  await fetchArchive(url, cacheDir);
+  await verifyFileSha256(archivePath, expectedSha256);
+
+  return archivePath;
+}
+
+export async function installLinuxRuntimeExecutable(source, target) {
+  const fileType = await run(["file", "-b", source], { capture: true });
+
+  if (!/\bELF\b/.test(fileType) || !/\bx86-64\b/.test(fileType)) {
+    throw new Error(`Refusing non-Linux x64 runtime ${source}: ${fileType.trim()}`);
+  }
+
+  await fs.copyFile(source, target);
+  await fs.chmod(target, 0o755);
+}
+
 async function prunePackagedPlugins(pluginsDir) {
   const openaiBundledDir = path.join(pluginsDir, "openai-bundled");
   const bundledPluginsDir = path.join(openaiBundledDir, "plugins");
@@ -627,6 +710,16 @@ async function sha256File(filePath) {
   hash.update(file);
 
   return hash.digest("hex");
+}
+
+async function verifyFileSha256(filePath, expectedSha256) {
+  const actualSha256 = await sha256File(filePath);
+
+  if (actualSha256 !== expectedSha256) {
+    throw new Error(
+      `Checksum mismatch for ${filePath}: expected ${expectedSha256}, got ${actualSha256}`
+    );
+  }
 }
 
 function replaceOnce(source, search, replacement) {

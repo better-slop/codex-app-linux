@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  installLinuxRuntimeExecutable,
   patchBetterSqlite3NativeSource,
   stagePackagedResources
 } from "../scripts/lib/build.mjs";
@@ -53,6 +54,8 @@ test("stagePackagedResources preserves Linux-safe upstream resources", async () 
     "darwin-tectonic"
   );
   await fs.writeFile(path.join(resourcesDir, "codex"), "darwin-codex");
+  await fs.mkdir(path.join(resourcesDir, "cua_node", "bin"), { recursive: true });
+  await fs.writeFile(path.join(resourcesDir, "cua_node", "bin", "node_repl"), "darwin-node-repl");
   await fs.writeFile(path.join(resourcesDir, "node"), "darwin-node");
   await fs.writeFile(path.join(resourcesDir, "rg"), "darwin-rg");
   await fs.writeFile(path.join(resourcesDir, "native", "browser-use-peer-authorization.node"), "native");
@@ -64,6 +67,7 @@ test("stagePackagedResources preserves Linux-safe upstream resources", async () 
   await assert.rejects(fs.access(path.join(targetDir, "app.asar")));
   await assert.rejects(fs.access(path.join(targetDir, "app.asar.unpacked")));
   await assert.rejects(fs.access(path.join(targetDir, "codex")));
+  await assert.rejects(fs.access(path.join(targetDir, "cua_node")));
   await assert.rejects(fs.access(path.join(targetDir, "node")));
   await assert.rejects(fs.access(path.join(targetDir, "rg")));
   await assert.rejects(fs.access(path.join(targetDir, "native")));
@@ -90,6 +94,23 @@ test("stagePackagedResources preserves Linux-safe upstream resources", async () 
     await fs.readFile(path.join(targetDir, "electron.icns"), "utf8"),
     "icon"
   );
+});
+
+test("installLinuxRuntimeExecutable only accepts Linux x64 ELF executables", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-runtime-test-"));
+  const fakeMachO = path.join(root, "node_repl");
+  const target = path.join(root, "target");
+
+  await fs.writeFile(fakeMachO, Buffer.from([0xcf, 0xfa, 0xed, 0xfe]));
+
+  await assert.rejects(
+    installLinuxRuntimeExecutable(fakeMachO, target),
+    /Refusing non-Linux x64 runtime/
+  );
+  await installLinuxRuntimeExecutable("/bin/true", target);
+
+  const mode = (await fs.stat(target)).mode & 0o777;
+  assert.equal(mode, 0o755);
 });
 
 test("patchBetterSqlite3NativeSource updates V8 external pointer calls", async () => {
