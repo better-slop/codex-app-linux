@@ -7,7 +7,8 @@ import path from "node:path";
 import {
   installLinuxRuntimeExecutable,
   patchBetterSqlite3NativeSource,
-  stagePackagedResources
+  stagePackagedResources,
+  writeLinuxAppPackageMetadata
 } from "../scripts/lib/build.mjs";
 
 test("stagePackagedResources preserves Linux-safe upstream resources", async () => {
@@ -111,6 +112,25 @@ test("installLinuxRuntimeExecutable only accepts Linux x64 ELF executables", asy
 
   const mode = (await fs.stat(target)).mode & 0o777;
   assert.equal(mode, 0o755);
+});
+
+test("writeLinuxAppPackageMetadata preserves explicit web build metadata", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-metadata-test-"));
+
+  await writeLinuxAppPackageMetadata(root, {
+    version: "26.609.71450",
+    buildNumber: "71450",
+    buildFlavor: "prod"
+  });
+
+  assert.deepEqual(
+    JSON.parse(await fs.readFile(path.join(root, "app-package.json"), "utf8")),
+    {
+      version: "26.609.71450",
+      codexBuildNumber: "71450",
+      codexBuildFlavor: "prod"
+    }
+  );
 });
 
 test("patchBetterSqlite3NativeSource updates V8 external pointer calls", async () => {

@@ -93,6 +93,7 @@ export async function buildChannel({
     upstream,
     archiveOverride || null
   );
+  await writeLinuxAppPackageMetadata(paths.stageResourcesDir, effectiveUpstream);
   const packageVersion = npmVersionFor(channel.name, effectiveUpstream);
   const releaseTag = releaseTagForVersion(packageVersion);
   const assetPrefix = assetBaseName(packageName, packageVersion);
@@ -277,8 +278,24 @@ async function normalizeStagePackage(stageAppDir, upstream, archiveOverride) {
     archiveUrl: archiveOverride || upstream.archiveUrl,
     version: original.version,
     buildNumber: original.codexBuildNumber,
+    buildFlavor: original.codexBuildFlavor,
     electronVersion: resolveElectronVersion(original)
   };
+}
+
+export async function writeLinuxAppPackageMetadata(targetDir, upstream) {
+  await fs.writeFile(
+    path.join(targetDir, "app-package.json"),
+    `${JSON.stringify(
+      {
+        version: upstream.version,
+        codexBuildNumber: upstream.buildNumber,
+        codexBuildFlavor: upstream.buildFlavor
+      },
+      null,
+      2
+    )}\n`
+  );
 }
 
 function resolveElectronVersion(packageJson) {
