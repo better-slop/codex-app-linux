@@ -41,6 +41,15 @@ const primaryRuntime = {
   nodeEntry: "codex-primary-runtime/dependencies/node/bin/node",
   nodeReplEntry: "codex-primary-runtime/dependencies/bin/node_repl"
 };
+const codexCliRuntime = {
+  url:
+    process.env.CODEX_CLI_RUNTIME_URL ||
+    "https://github.com/openai/codex/releases/download/rust-v0.140.0/codex-package-x86_64-unknown-linux-musl.tar.gz",
+  sha256:
+    process.env.CODEX_CLI_RUNTIME_SHA256 ||
+    "9620e798900c6fb289199a9e0a8ed0c3a8cb7e3561048498ebc2dac354a1627b",
+  codexEntry: "bin/codex"
+};
 
 export async function buildChannel({
   channel,
@@ -76,6 +85,7 @@ export async function buildChannel({
   ]);
   await patchUpstreamApp(paths.stageAppDir);
   await stagePackagedResources(appResourcesDir, paths.stageResourcesDir);
+  await stageLinuxCodexCliRuntime(paths.stageResourcesDir);
   await stageLinuxNodeReplRuntime(paths.stageResourcesDir);
 
   const effectiveUpstream = await normalizeStagePackage(
@@ -536,6 +546,21 @@ export async function stagePackagedResources(resourcesDir, targetDir) {
       await prunePackagedPlugins(targetPath);
     }
   }
+}
+
+export async function stageLinuxCodexCliRuntime(targetDir) {
+  const archivePath = await fetchVerifiedArchive(
+    codexCliRuntime.url,
+    codexCliRuntime.sha256,
+    path.join(cacheRoot, "codex-cli-runtime")
+  );
+  const extractDir = path.join(targetDir, ".codex-cli-runtime-extract");
+  const sourceCodex = path.join(extractDir, "bin", "codex");
+
+  await ensureEmptyDir(extractDir);
+  await run(["tar", "-xzf", archivePath, "-C", extractDir, codexCliRuntime.codexEntry]);
+  await installLinuxRuntimeExecutable(sourceCodex, path.join(targetDir, "codex"));
+  await fs.rm(extractDir, { recursive: true, force: true });
 }
 
 export async function stageLinuxNodeReplRuntime(targetDir) {
