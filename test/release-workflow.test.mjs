@@ -55,6 +55,8 @@ test("upstream canary workflow reports scheduled failures without publish permis
   assert.doesNotMatch(workflow, /npm publish|gh release upload|aur\.archlinux/);
   assert.match(workflow, /node scripts\/report-canary-failure\.mjs/);
   assert.match(workflow, /github\.event_name == 'schedule'/);
+  assert.match(workflow, /No scheduled upstream canary failure to report/);
+  assert.match(workflow, /needs\.upstream-canary\.result == 'failure'/);
 });
 
 test("release-channel CLI refuses direct publish bypass", async () => {

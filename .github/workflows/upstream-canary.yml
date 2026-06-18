@@ -55,23 +55,30 @@ jobs:
 
   report-scheduled-failure:
     needs: upstream-canary
-    if: failure() && github.event_name == 'schedule'
+    if: always()
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: read
       issues: write
     steps:
+      - name: Skip report
+        if: github.event_name != 'schedule' || needs.upstream-canary.result != 'failure'
+        run: echo "No scheduled upstream canary failure to report"
+
       - uses: actions/checkout@v5
+        if: github.event_name == 'schedule' && needs.upstream-canary.result == 'failure'
 
       - name: Download canary evidence
-        uses: actions/download-artifact@v5
+        if: github.event_name == 'schedule' && needs.upstream-canary.result == 'failure'
+        uses: actions/download-artifact@v4
         continue-on-error: true
         with:
           name: upstream-canary-evidence
           path: dist
 
       - name: Report scheduled failure
+        if: github.event_name == 'schedule' && needs.upstream-canary.result == 'failure'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
