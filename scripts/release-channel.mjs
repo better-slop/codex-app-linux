@@ -3,7 +3,7 @@ import process from "node:process";
 import fs from "node:fs/promises";
 
 import { fetchAppcastMetadata } from "./lib/appcast.mjs";
-import { buildChannel, npmVersionExists, publishPackage } from "./lib/build.mjs";
+import { buildChannel, npmVersionExists } from "./lib/build.mjs";
 import {
   defaultLauncherCommand,
   defaultPackageName,
@@ -30,6 +30,10 @@ const force = Boolean(args.force);
 const jsonOutputPath = args["json-output"]
   ? path.resolve(String(args["json-output"]))
   : null;
+
+if (publish) {
+  throw new Error("--publish is disabled; use the release workflow so canary and smoke gates run before publish");
+}
 
 const upstream = await fetchAppcastMetadata(channel.appcastUrl);
 const packageVersion = npmVersionFor(channel.name, upstream);
@@ -65,15 +69,12 @@ const result = await buildChannel({
   archiveOverride
 });
 
-if (publish) {
-  await publishPackage(result.packageDir, channel.distTag);
-}
-
 const summary = {
   channel: channel.name,
   packageName,
   packageVersion: result.npmVersion,
   archivePath: result.archivePath,
+  linuxDir: result.linuxDir,
   packageDir: result.packageDir,
   appImagePath: result.appImagePath,
   unpackedTarballPath: result.unpackedTarballPath,
@@ -84,7 +85,7 @@ const summary = {
   releaseRepo: result.releaseRepo,
   releaseTag: result.releaseTag,
   prerelease: channel.prerelease,
-  published: publish
+  published: false
 };
 
 if (jsonOutputPath) {

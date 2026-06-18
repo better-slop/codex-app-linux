@@ -18,8 +18,15 @@ test("stagePackagedResources preserves Linux-safe upstream resources", async () 
 
   await fs.mkdir(path.join(resourcesDir, "plugins", "openai-bundled", ".agents", "plugins"), { recursive: true });
   await fs.mkdir(path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "browser-use"), { recursive: true });
+  await fs.mkdir(path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "browser", "scripts", "node_modules", "classic-level", "prebuilds", "darwin-x64+arm64"), { recursive: true });
+  await fs.mkdir(path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "browser", "scripts", "node_modules", "classic-level", "prebuilds", "linux-arm64"), { recursive: true });
+  await fs.mkdir(path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "browser", "scripts", "node_modules", "classic-level", "prebuilds", "linux-x64"), { recursive: true });
+  await fs.mkdir(path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "chrome", "extension-host", "macos", "arm64"), { recursive: true });
+  await fs.mkdir(path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "chrome", "extension-host", "linux", "x64"), { recursive: true });
   await fs.mkdir(path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "computer-use"), { recursive: true });
+  await fs.mkdir(path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "latex", "bin"), { recursive: true });
   await fs.mkdir(path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "latex-tectonic", "bin"), { recursive: true });
+  await fs.mkdir(path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "record-and-replay", "Codex Computer Use.app", "Contents", "MacOS"), { recursive: true });
   await fs.mkdir(path.join(resourcesDir, "native"), { recursive: true });
   await fs.mkdir(path.join(resourcesDir, "app.asar.unpacked", "node_modules"), { recursive: true });
   await fs.writeFile(path.join(resourcesDir, "app.asar"), "asar");
@@ -35,6 +42,7 @@ test("stagePackagedResources preserves Linux-safe upstream resources", async () 
         plugins: [
           { name: "browser-use", source: { source: "local", path: "./plugins/browser-use" } },
           { name: "computer-use", source: { source: "local", path: "./plugins/computer-use" } },
+          { name: "latex", source: { source: "local", path: "./plugins/latex" } },
           { name: "latex-tectonic", source: { source: "local", path: "./plugins/latex-tectonic" } }
         ]
       },
@@ -47,12 +55,40 @@ test("stagePackagedResources preserves Linux-safe upstream resources", async () 
     "browser-use"
   );
   await fs.writeFile(
+    path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "browser", "scripts", "node_modules", "classic-level", "prebuilds", "darwin-x64+arm64", "classic-level.node"),
+    "darwin-fat-native"
+  );
+  await fs.writeFile(
+    path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "browser", "scripts", "node_modules", "classic-level", "prebuilds", "linux-arm64", "classic-level.node"),
+    "linux-arm64-native"
+  );
+  await fs.writeFile(
+    path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "browser", "scripts", "node_modules", "classic-level", "prebuilds", "linux-x64", "classic-level.node"),
+    "linux-x64-native"
+  );
+  await fs.writeFile(
+    path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "chrome", "extension-host", "macos", "arm64", "extension-host"),
+    "darwin-extension-host"
+  );
+  await fs.writeFile(
+    path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "chrome", "extension-host", "linux", "x64", "extension-host"),
+    "linux-extension-host"
+  );
+  await fs.writeFile(
     path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "computer-use", "plugin.json"),
     "computer-use"
   );
   await fs.writeFile(
+    path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "latex", "bin", "tectonic"),
+    "darwin-tectonic"
+  );
+  await fs.writeFile(
     path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "latex-tectonic", "bin", "tectonic"),
     "darwin-tectonic"
+  );
+  await fs.writeFile(
+    path.join(resourcesDir, "plugins", "openai-bundled", "plugins", "record-and-replay", "Codex Computer Use.app", "Contents", "MacOS", "SkyComputerUseService"),
+    "mach-o-arm64"
   );
   await fs.writeFile(path.join(resourcesDir, "codex"), "darwin-codex");
   await fs.mkdir(path.join(resourcesDir, "cua_node", "bin"), { recursive: true });
@@ -73,13 +109,32 @@ test("stagePackagedResources preserves Linux-safe upstream resources", async () 
   await assert.rejects(fs.access(path.join(targetDir, "rg")));
   await assert.rejects(fs.access(path.join(targetDir, "native")));
   await assert.rejects(fs.access(path.join(targetDir, "plugins", "openai-bundled", "plugins", "computer-use")));
+  await assert.rejects(fs.access(path.join(targetDir, "plugins", "openai-bundled", "plugins", "latex")));
   await assert.rejects(fs.access(path.join(targetDir, "plugins", "openai-bundled", "plugins", "latex-tectonic")));
+  await assert.rejects(fs.access(path.join(targetDir, "plugins", "openai-bundled", "plugins", "record-and-replay", "Codex Computer Use.app")));
+  await assert.rejects(fs.access(path.join(targetDir, "plugins", "openai-bundled", "plugins", "browser", "scripts", "node_modules", "classic-level", "prebuilds", "darwin-x64+arm64")));
+  await assert.rejects(fs.access(path.join(targetDir, "plugins", "openai-bundled", "plugins", "browser", "scripts", "node_modules", "classic-level", "prebuilds", "linux-arm64")));
+  await assert.rejects(fs.access(path.join(targetDir, "plugins", "openai-bundled", "plugins", "chrome", "extension-host", "macos")));
   assert.equal(
     await fs.readFile(
       path.join(targetDir, "plugins", "openai-bundled", "plugins", "browser-use", "plugin.json"),
       "utf8"
     ),
     "browser-use"
+  );
+  assert.equal(
+    await fs.readFile(
+      path.join(targetDir, "plugins", "openai-bundled", "plugins", "browser", "scripts", "node_modules", "classic-level", "prebuilds", "linux-x64", "classic-level.node"),
+      "utf8"
+    ),
+    "linux-x64-native"
+  );
+  assert.equal(
+    await fs.readFile(
+      path.join(targetDir, "plugins", "openai-bundled", "plugins", "chrome", "extension-host", "linux", "x64", "extension-host"),
+      "utf8"
+    ),
+    "linux-extension-host"
   );
   const marketplace = JSON.parse(
     await fs.readFile(

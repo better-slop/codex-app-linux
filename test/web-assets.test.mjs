@@ -13,6 +13,7 @@ import {
   readExtractedBuildMetadata,
   resolveCodexAppPaths
 } from "../runtime/webstrap/assets.mjs";
+import { createAppHostModuleBody } from "../runtime/webstrap/server.mjs";
 import { safePathJoin } from "../runtime/webstrap/util.mjs";
 
 test("resolveCodexAppPaths supports linux-unpacked layout", async () => {
@@ -105,6 +106,18 @@ test("buildPatchedIndexHtml installs web app host before upstream app entry", as
 
   assert.match(patched, /<script type="module" src="\/__webstrapper\/app-host\.js"><\/script>\s*<script type="module" crossorigin src="\.\/assets\/index-abc\.js"><\/script>/);
   assert.match(patched, /<script src="\/__webstrapper\/shim\.js"><\/script>/);
+});
+
+test("createAppHostModuleBody resolves RPC peer constructor semantically", () => {
+  const body = createAppHostModuleBody(
+    "/tmp/codex-web/webview/assets/rpc-new.js",
+    "/tmp/codex-web/webview"
+  );
+
+  assert.match(body, /import \* as rpcModule/);
+  assert.match(body, /\[rpcModule\.V, rpcModule\.E, \.\.\.Object\.values\(rpcModule\)\]\.find/);
+  assert.match(body, /getRemoteMain/);
+  assert.doesNotMatch(body, /import \{ E as createRpcPeer \}/);
 });
 
 test("patchStatsigChunkSource makes statsig init non-blocking", () => {

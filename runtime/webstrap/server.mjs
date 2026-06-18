@@ -493,7 +493,7 @@ if (isDirectRun) {
   });
 }
 
-function createAppHostModuleBody(rpcModulePath, webRoot) {
+export function createAppHostModuleBody(rpcModulePath, webRoot) {
   if (!rpcModulePath) {
     return "console.warn('codex-webstrap app host RPC module not found');\n";
   }
@@ -501,7 +501,19 @@ function createAppHostModuleBody(rpcModulePath, webRoot) {
   const rpcModuleUrl = `/${path.relative(webRoot, rpcModulePath).split(path.sep).join("/")}`;
 
   return `
-import { E as createRpcPeer } from ${JSON.stringify(rpcModuleUrl)};
+import * as rpcModule from ${JSON.stringify(rpcModuleUrl)};
+
+const createRpcPeer = [rpcModule.V, rpcModule.E, ...Object.values(rpcModule)].find((value) => {
+  if (typeof value !== "function") {
+    return false;
+  }
+
+  return Function.prototype.toString.call(value).includes("getRemoteMain");
+});
+
+if (typeof createRpcPeer !== "function") {
+  throw new Error("codex-webstrap app host RPC peer constructor not found");
+}
 
 const appUpdateSubscribers = new Set();
 const appUpdateState = {

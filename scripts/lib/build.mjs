@@ -30,7 +30,7 @@ const skippedLinuxResourceNames = new Set([
   "node_repl",
   "rg"
 ]);
-const skippedBundledPluginNames = new Set(["computer-use", "latex-tectonic"]);
+const skippedBundledPluginNames = new Set(["computer-use", "latex", "latex-tectonic"]);
 const primaryRuntime = {
   url:
     process.env.CODEX_PRIMARY_RUNTIME_URL ||
@@ -561,6 +561,7 @@ export async function stagePackagedResources(resourcesDir, targetDir) {
 
     if (entry.name === "plugins") {
       await prunePackagedPlugins(targetPath);
+      await pruneForeignPackagedResources(targetPath);
     }
   }
 }
@@ -664,6 +665,80 @@ async function prunePackagedPlugins(pluginsDir) {
   await filterBundledPluginMarketplace(
     path.join(openaiBundledDir, ".agents", "plugins", "marketplace.json")
   );
+}
+
+async function pruneForeignPackagedResources(rootDir) {
+  const stack = [rootDir];
+
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+
+      if (entry.isDirectory()) {
+        if (shouldPruneForeignDirectory(entry.name)) {
+          await fs.rm(fullPath, { recursive: true, force: true });
+          continue;
+        }
+
+        if (entry.name === "prebuilds") {
+          await pruneForeignPrebuilds(fullPath);
+          continue;
+        }
+
+        stack.push(fullPath);
+        continue;
+      }
+
+      if (entry.isFile() && shouldPruneForeignFile(entry.name)) {
+        await fs.rm(fullPath, { force: true });
+      }
+    }
+  }
+}
+
+async function pruneForeignPrebuilds(prebuildsDir) {
+  const entries = await fs.readdir(prebuildsDir, { withFileTypes: true }).catch(() => []);
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    if (entry.name === "linux-x64") {
+      continue;
+    }
+
+    await fs.rm(path.join(prebuildsDir, entry.name), {
+      recursive: true,
+      force: true
+    });
+  }
+}
+
+function shouldPruneForeignDirectory(name) {
+  return (
+    name.endsWith(".app") ||
+    name.endsWith(".framework") ||
+    name === "arm" ||
+    name === "arm64" ||
+    name === "aarch64" ||
+    name === "darwin" ||
+    name === "macos" ||
+    name === "win32" ||
+    name === "windows" ||
+    name.startsWith("darwin-") ||
+    name.startsWith("win32-") ||
+    name.startsWith("android-") ||
+    name === "linux-arm" ||
+    name === "linux-arm64"
+  );
+}
+
+function shouldPruneForeignFile(name) {
+  return name.endsWith(".dylib") || name.endsWith(".dll") || name.endsWith(".exe");
 }
 
 async function filterBundledPluginMarketplace(marketplacePath) {

@@ -15,6 +15,56 @@ const linuxOpenTargetDefinitions = openCommandName => [
   "__codexLinuxZed={id:`zed`,platforms:{linux:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:()=>W(`zed`),args:__codexLinuxOpenTargetColonArgs}}}",
   "__codexLinuxNvim={id:`nvim`,platforms:{linux:{label:`Neovim`,icon:`apps/terminal.png`,kind:`editor`,detect:()=>W(`nvim`),args:__codexLinuxOpenTargetNvimArgs,open:__codexLinuxOpenTargetRunNvim}}}"
 ].join(",");
+const openTargetMapRegex =
+  /targets:\[\.\.\.([A-Za-z_$][\w$]*)\.map\(\(\{id:([A-Za-z_$][\w$]*),label:([A-Za-z_$][\w$]*),icon:([A-Za-z_$][\w$]*),kind:([A-Za-z_$][\w$]*),hidden:([A-Za-z_$][\w$]*)\}\)=>\(\{id:\2,target:\2,label:\3,icon:\4,kind:\5,hidden:\6,available:([A-Za-z_$][\w$]*)\.has\(\2\),default:([A-Za-z_$][\w$]*)===\2\|\|void 0\}\)\),\.\.\.([A-Za-z_$][\w$]*)\]/;
+const linuxTransparencyPatchedRegex =
+  /transparent:[A-Za-z_$][\w$]*===`linux`\?!1:[A-Za-z_$][\w$]*,hasShadow:/;
+const linuxTransparencyPatchRegex =
+  /function ([A-Za-z_$][\w$]*)\(\{alwaysOnTop:([A-Za-z_$][\w$]*),hasShadow:([A-Za-z_$][\w$]*)=!0,platform:([A-Za-z_$][\w$]*),resizable:([A-Za-z_$][\w$]*),thickFrame:([A-Za-z_$][\w$]*),transparent:([A-Za-z_$][\w$]*)=!0\}\)\{return\{frame:!1,transparent:\7,hasShadow:\3,/;
+
+export class UpstreamPatchContractError extends Error {
+  constructor(contractName, message, options = {}) {
+    super(`${contractName} contract changed: ${message}`, {
+      cause: options.cause
+    });
+    this.name = "UpstreamPatchContractError";
+    this.contractName = contractName;
+  }
+}
+
+export const upstreamPatchContracts = [
+  // Why: upstream desktop only registers macOS open-in-editor targets; Linux
+  // needs locally installed editors and terminal-backed Neovim. Contract:
+  // upstream still exposes an open-target registry, runner, and preferred-target
+  // mapper. Repro: node scripts/canary.mjs --channel prod --no-smoke.
+  {
+    name: "open-target-dispatcher",
+    find: findOpenTargetRegistry,
+    assertBefore: assertOpenTargetsBefore,
+    apply: applyLinuxOpenTargetsSource,
+    assertAfter: assertOpenTargetsAfter
+  },
+  // Why: transparent frameless windows render poorly under Linux compositors.
+  // Contract: the main bundle still builds BrowserWindow background options
+  // from the parsed window-options object. Repro: node scripts/canary.mjs --channel prod --no-smoke.
+  {
+    name: "linux-window-background",
+    find: findLinuxWindowBackgroundPatch,
+    assertBefore: assertLinuxWindowBackgroundBefore,
+    apply: patchLinuxWindowBackground,
+    assertAfter: assertLinuxWindowBackgroundAfter
+  },
+  // Why: Linux needs forced opaque windows even when upstream defaults are
+  // transparent. Contract: the minified BrowserWindow helper still returns the
+  // transparent option beside hasShadow. Repro: node scripts/canary.mjs --channel prod --no-smoke.
+  {
+    name: "linux-window-transparency",
+    find: findLinuxWindowTransparencyPatch,
+    assertBefore: assertLinuxWindowTransparencyBefore,
+    apply: patchLinuxWindowTransparency,
+    assertAfter: assertLinuxWindowTransparencyAfter
+  }
+];
 
 export async function patchUpstreamApp(stageAppDir) {
   const buildDir = path.join(stageAppDir, ".vite", "build");
@@ -37,15 +87,51 @@ export async function patchUpstreamApp(stageAppDir) {
 }
 
 export function patchUpstreamMainSource(source) {
-  let patched = source;
-
-  patched = patchLinuxOpenTargetsSource(patched);
-  patched = patchDisableTransparencySource(patched);
-
-  return patched;
+  return applyUpstreamPatchContracts(source, upstreamPatchContracts);
 }
 
 export function patchLinuxOpenTargetsSource(source) {
+  return applyUpstreamPatchContract(source, upstreamPatchContracts[0]);
+}
+
+export function patchDisableTransparencySource(source) {
+  return applyUpstreamPatchContracts(source, upstreamPatchContracts.slice(1));
+}
+
+export function applyUpstreamPatchContracts(source, contracts) {
+  return contracts.reduce(
+    (patched, contract) => applyUpstreamPatchContract(patched, contract),
+    source
+  );
+}
+
+export function applyUpstreamPatchContract(source, contract) {
+  try {
+    contract.find(source);
+
+    try {
+      contract.assertAfter(source);
+      return source;
+    } catch {
+      // Not already patched.
+    }
+
+    contract.assertBefore(source);
+    const patched = contract.apply(source);
+    contract.assertAfter(patched);
+    return patched;
+  } catch (error) {
+    if (error instanceof UpstreamPatchContractError) {
+      throw error;
+    }
+
+    throw new UpstreamPatchContractError(contract.name, error.message, {
+      cause: error
+    });
+  }
+}
+
+function applyLinuxOpenTargetsSource(source) {
   let patched = source;
 
   if (!patched.includes("__codexLinuxVSCode=")) {
@@ -64,13 +150,27 @@ export function patchLinuxOpenTargetsSource(source) {
   return patched;
 }
 
-export function patchDisableTransparencySource(source) {
-  let patched = source;
+function assertOpenTargetsBefore(source) {
+  findOpenTargetRegistry(source);
+  findOpenCommandName(source);
 
-  patched = patchLinuxWindowBackground(patched);
-  patched = patchLinuxWindowTransparency(patched);
+  if (!source.includes("appPath:process.platform===`linux`") && !openTargetMapRegex.test(source)) {
+    throw new Error("missing open target map");
+  }
+}
 
-  return patched;
+function assertOpenTargetsAfter(source) {
+  if (!source.includes("__codexLinuxVSCode=")) {
+    throw new Error("missing Linux open target definitions");
+  }
+
+  if (!source.includes("appPath:process.platform===`linux`")) {
+    throw new Error("missing Linux appPath target metadata");
+  }
+
+  if (source.includes("let n=t.platforms[e];return n")) {
+    throw new Error("open target platform lookup is not null-safe");
+  }
 }
 
 function patchLinuxWindowBackground(source) {
@@ -122,6 +222,22 @@ function findLinuxWindowBackgroundPatch(source) {
   }
 
   return null;
+}
+
+function assertLinuxWindowBackgroundBefore(source) {
+  const patch = findLinuxWindowBackgroundPatch(source);
+
+  if (!patch || patch.status !== "patch") {
+    throw new Error("missing window background helper");
+  }
+}
+
+function assertLinuxWindowBackgroundAfter(source) {
+  const patch = findLinuxWindowBackgroundPatch(source);
+
+  if (!patch || patch.status !== "patched") {
+    throw new Error("Linux window background assertion failed");
+  }
 }
 
 function linuxWindowBackgroundPatchForFunction(source, node) {
@@ -377,13 +493,11 @@ function isStringLiteral(node, value) {
 }
 
 function patchLinuxWindowTransparency(source) {
-  if (/transparent:[A-Za-z_$][\w$]*===`linux`\?!1:[A-Za-z_$][\w$]*,hasShadow:/.test(source)) {
+  if (linuxTransparencyPatchedRegex.test(source)) {
     return source;
   }
 
-  const match = source.match(
-    /function ([A-Za-z_$][\w$]*)\(\{alwaysOnTop:([A-Za-z_$][\w$]*),hasShadow:([A-Za-z_$][\w$]*)=!0,platform:([A-Za-z_$][\w$]*),resizable:([A-Za-z_$][\w$]*),thickFrame:([A-Za-z_$][\w$]*),transparent:([A-Za-z_$][\w$]*)=!0\}\)\{return\{frame:!1,transparent:\7,hasShadow:\3,/
-  );
+  const match = source.match(linuxTransparencyPatchRegex);
 
   if (!match) {
     throw new Error("Unable to apply upstream patch; missing window transparency helper");
@@ -398,14 +512,42 @@ function patchLinuxWindowTransparency(source) {
   return replaceOnce(source, anchor, replacement);
 }
 
+function findLinuxWindowTransparencyPatch(source) {
+  if (linuxTransparencyPatchedRegex.test(source)) {
+    return { status: "patched" };
+  }
+
+  const match = source.match(linuxTransparencyPatchRegex);
+
+  if (!match) {
+    return null;
+  }
+
+  return { status: "patch", match };
+}
+
+function assertLinuxWindowTransparencyBefore(source) {
+  const patch = findLinuxWindowTransparencyPatch(source);
+
+  if (!patch || patch.status !== "patch") {
+    throw new Error("missing window transparency helper");
+  }
+}
+
+function assertLinuxWindowTransparencyAfter(source) {
+  const patch = findLinuxWindowTransparencyPatch(source);
+
+  if (!patch || patch.status !== "patched") {
+    throw new Error("Linux window transparency assertion failed");
+  }
+}
+
 function patchOpenTargetMap(source) {
   if (source.includes("appPath:process.platform===`linux`")) {
     return source;
   }
 
-  const match = source.match(
-    /targets:\[\.\.\.([A-Za-z_$][\w$]*)\.map\(\(\{id:([A-Za-z_$][\w$]*),label:([A-Za-z_$][\w$]*),icon:([A-Za-z_$][\w$]*),kind:([A-Za-z_$][\w$]*),hidden:([A-Za-z_$][\w$]*)\}\)=>\(\{id:\2,target:\2,label:\3,icon:\4,kind:\5,hidden:\6,available:([A-Za-z_$][\w$]*)\.has\(\2\),default:([A-Za-z_$][\w$]*)===\2\|\|void 0\}\)\),\.\.\.([A-Za-z_$][\w$]*)\]/
-  );
+  const match = source.match(openTargetMapRegex);
 
   if (!match) {
     throw new Error("Unable to apply upstream patch; missing open target map");
@@ -442,7 +584,7 @@ function patchOpenTargetPlatformLookup(source) {
 
 function findOpenTargetRegistry(source) {
   const match = source.match(
-    /var ([A-Za-z_$][\w$]*)=\[[^\]]+\],[A-Za-z_$][\w$]*=[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\(`open-in-targets`\);function [A-Za-z_$][\w$]*\(e\)\{return \1\.flatMap/
+    /var ([A-Za-z_$][\w$]*)=\[[^\]]+\],[A-Za-z_$][\w$]*=[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\(`open-in-targets`\);\s*function [A-Za-z_$][\w$]*\(e\)\{return \1\.flatMap/
   );
 
   if (!match) {

@@ -42,8 +42,70 @@ jobs:
           echo "prod_version=$(jq -r '.channels.prod.packageVersion' dist/release-state.json)" >> "$GITHUB_OUTPUT"
           echo "beta_version=$(jq -r '.channels.beta.packageVersion' dist/release-state.json)" >> "$GITHUB_OUTPUT"
 
-  publish-prod:
+  canary:
     needs: preflight
+    if: github.event.inputs.force == 'true' || needs.preflight.outputs.prod_outdated == 'true' || needs.preflight.outputs.beta_outdated == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      NPM_PACKAGE_NAME: "codex-app-linux"
+      CODEX_RELEASE_REPO: "${{ github.repository }}"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full jq libarchive-tools xvfb
+
+      - name: Install repo deps
+        run: npm ci
+
+      - name: Install browser deps
+        run: npx playwright install --with-deps chromium
+
+      - name: Run upstream canary
+        id: canary
+        run: |
+          mkdir -p dist
+          set +e
+          xvfb-run -a node scripts/canary.mjs \
+            --json-output dist/upstream-canary.json \
+            > dist/upstream-canary.log 2>&1
+          status=$?
+          cat dist/upstream-canary.log
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+          exit "${status}"
+
+      - name: Upload canary evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-canary-evidence
+          path: |
+            dist/upstream-canary.json
+            dist/upstream-canary.log
+
+      - name: Report scheduled failure
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/report-canary-failure.mjs \
+            --summary dist/upstream-canary.json \
+            --log dist/upstream-canary.log \
+            --repo "${{ github.repository }}" \
+            --workflow-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --job-name "canary" \
+            --step-name "Run upstream canary"
+
+  publish-prod:
+    needs: [preflight, canary]
     if: github.event.inputs.force == 'true' || needs.preflight.outputs.prod_outdated == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -64,10 +126,13 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y p7zip-full jq libarchive-tools
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full jq libarchive-tools xvfb
 
       - name: Install repo deps
         run: npm ci
+
+      - name: Install browser deps
+        run: npx playwright install --with-deps chromium
 
       - name: Build channel
         run: |
@@ -98,6 +163,14 @@ jobs:
           echo "release_tag=$(jq -r '.releaseTag // ""' "$json")" >> "$GITHUB_OUTPUT"
           echo "package_version=$(jq -r '.packageVersion' "$json")" >> "$GITHUB_OUTPUT"
           echo "prerelease=$(jq -r '.prerelease // false' "$json")" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke channel
+        if: steps.meta.outputs.skipped != 'true'
+        run: |
+          xvfb-run -a node scripts/smoke-artifacts.mjs \
+            --channel "prod" \
+            --release-json "dist/prod-release.json" \
+            --json-output "dist/prod-smoke.json"
 
       - name: Generate release notes
         if: steps.meta.outputs.skipped != 'true'
@@ -218,7 +291,7 @@ jobs:
           git -C aur-prod push origin HEAD
 
   publish-beta:
-    needs: preflight
+    needs: [preflight, canary]
     if: github.event.inputs.force == 'true' || needs.preflight.outputs.beta_outdated == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -239,10 +312,13 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y p7zip-full jq libarchive-tools
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full jq libarchive-tools xvfb
 
       - name: Install repo deps
         run: npm ci
+
+      - name: Install browser deps
+        run: npx playwright install --with-deps chromium
 
       - name: Build channel
         run: |
@@ -273,6 +349,14 @@ jobs:
           echo "release_tag=$(jq -r '.releaseTag // ""' "$json")" >> "$GITHUB_OUTPUT"
           echo "package_version=$(jq -r '.packageVersion' "$json")" >> "$GITHUB_OUTPUT"
           echo "prerelease=$(jq -r '.prerelease // false' "$json")" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke channel
+        if: steps.meta.outputs.skipped != 'true'
+        run: |
+          xvfb-run -a node scripts/smoke-artifacts.mjs \
+            --channel "beta" \
+            --release-json "dist/beta-release.json" \
+            --json-output "dist/beta-smoke.json"
 
       - name: Generate release notes
         if: steps.meta.outputs.skipped != 'true'

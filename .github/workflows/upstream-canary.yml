@@ -1,0 +1,84 @@
+name: upstream-canary
+
+on:
+  workflow_dispatch:
+  pull_request:
+  schedule:
+    - cron: "17 3,15 * * *"
+
+jobs:
+  upstream-canary:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      NPM_PACKAGE_NAME: "codex-app-linux"
+      CODEX_RELEASE_REPO: "${{ github.repository }}"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full jq libarchive-tools xvfb
+
+      - name: Install repo deps
+        run: npm ci
+
+      - name: Install browser deps
+        run: npx playwright install --with-deps chromium
+
+      - name: Run upstream canary
+        id: canary
+        run: |
+          mkdir -p dist
+          set +e
+          xvfb-run -a node scripts/canary.mjs \
+            --json-output dist/upstream-canary.json \
+            > dist/upstream-canary.log 2>&1
+          status=$?
+          cat dist/upstream-canary.log
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+          exit "${status}"
+
+      - name: Upload canary evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-canary-evidence
+          path: |
+            dist/upstream-canary.json
+            dist/upstream-canary.log
+
+  report-scheduled-failure:
+    needs: upstream-canary
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download canary evidence
+        uses: actions/download-artifact@v5
+        continue-on-error: true
+        with:
+          name: upstream-canary-evidence
+          path: dist
+
+      - name: Report scheduled failure
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/report-canary-failure.mjs \
+            --summary dist/upstream-canary.json \
+            --log dist/upstream-canary.log \
+            --repo "${{ github.repository }}" \
+            --workflow-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --job-name "upstream-canary" \
+            --step-name "Run upstream canary"

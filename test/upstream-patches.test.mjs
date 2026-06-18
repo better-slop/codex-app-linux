@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 
 import {
   patchDisableTransparencySource,
-  patchLinuxOpenTargetsSource
+  patchLinuxOpenTargetsSource,
+  upstreamPatchContracts
 } from "../scripts/lib/upstream-patches.mjs";
 
 test("patchLinuxOpenTargetsSource adds Linux editor targets and exposes app paths", () => {
@@ -101,6 +103,46 @@ test("patchLinuxOpenTargetsSource accepts upstream dispatcher runner shape", () 
   assert.match(
     patched,
     /await no\(r\.command,r\.args\(__codexLinuxOpenTargetNvimCommand\(e,t,n\)\)\)/
+  );
+});
+
+test("patchLinuxOpenTargetsSource accepts latest real upstream dispatcher fixture slice", async () => {
+  const source = await fs.readFile(
+    "test/fixtures/upstream-main-26.616.30709-open-target.slice.txt",
+    "utf8"
+  );
+
+  const patched = patchLinuxOpenTargetsSource(source);
+
+  assert.match(
+    patched,
+    /var kN=\[__codexLinuxVSCode,__codexLinuxVSCodeInsiders,__codexLinuxCursor,__codexLinuxZed,__codexLinuxNvim,cN,uN/
+  );
+  assert.match(
+    patched,
+    /await no\(r\.command,r\.args\(__codexLinuxOpenTargetNvimCommand\(e,t,n\)\)\)/
+  );
+  assert.match(
+    patched,
+    /appPath:process\.platform===`linux`&&r===`editor`&&m\.has\(e\)\?Ld\(\)\.get\(e\)\?\?null:null/
+  );
+});
+
+test("upstream patch contracts declare required contract surface", () => {
+  assert.deepEqual(
+    upstreamPatchContracts.map(contract => Object.keys(contract).sort()),
+    upstreamPatchContracts.map(() => ["apply", "assertAfter", "assertBefore", "find", "name"])
+  );
+  assert.deepEqual(
+    upstreamPatchContracts.map(contract => contract.name),
+    ["open-target-dispatcher", "linux-window-background", "linux-window-transparency"]
+  );
+});
+
+test("patchLinuxOpenTargetsSource reports contract name on upstream drift", () => {
+  assert.throws(
+    () => patchLinuxOpenTargetsSource("function nope(){}"),
+    /open-target-dispatcher contract changed: Unable to apply upstream patch; missing open target registry/
   );
 });
 

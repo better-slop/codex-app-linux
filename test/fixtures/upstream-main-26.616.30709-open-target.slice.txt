@@ -1,0 +1,7 @@
+function DN(e){let t=e.indexOf(`.app/Contents/MacOS/`);return t===-1?null:e.slice(0,t+4)}
+async function ON({command:e,path:t,location:n,hostConfig:r,remoteWorkspaceRoot:i,remotePath:a}){let o=qM(t,n,r,i,a),s=o[0]??t,c=n==null?s:qM(t,null,r,i,a)[0]??s,l=DN(e);if(l){if(await no(`open`,[`-a`,l,c]),!n)return;let t=Qa(`zed`)??e;try{await no(t,o)}catch{}return}await no(e,o)}
+var kN=[cN,uN,oN,lM,Bj,pM,XM,wN,pN,Rj,SM,$M,mM,Hj,yM,sM,hN,wM,vM,fN,yN,AM,jM,MM,NM,PM,FM,IM,LM,nN],AN=t.qr(`open-in-targets`);
+function jN(e){return kN.flatMap(t=>{let n=t.platforms[e];return n?[{id:t.id,...n}]:[]})}
+var MN=jN(process.platform),NN=HN(MN),PN=new WeakMap,FN=new WeakMap,IN=async e=>a.shell.readShortcutLink(e);
+async function BN(e,t,{appPath:n,detectedCommand:r,hostConfig:i,location:a,remotePath:o,remoteWorkspaceRoot:s,targets:c=MN}={}){if(o!=null&&i?.kind===`remote-control`)throw Error(`Remote control does not support open in ${e} yet.`);let l=c.find(t=>t.id===e);if(!l)throw Error(`Unknown open target "${e}"`);let u=r??await l.detect(IN);if(!u)throw Error(`Open target "${e}" is not available`);if(l.open){await l.open({command:u,path:t,appPath:n,location:a,hostConfig:i,remoteWorkspaceRoot:s,remotePath:o});return}await no(u,l.args(t,a,i,s,o),{env:l.env?.()})}
+function preferredTargets(){return{targets:[...l.map(({id:e,label:t,icon:n,kind:r,hidden:i})=>({id:e,target:e,label:t,icon:n,kind:r,hidden:i,available:m.has(e),default:h===e||void 0})),...y]}}

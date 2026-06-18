@@ -6,6 +6,8 @@
   "author": "Zero Caulk <zero@composer.group>",
   "type": "module",
   "scripts": {
+    "canary": "node scripts/canary.mjs",
+    "smoke": "node scripts/smoke-artifacts.mjs",
     "test": "node --test",
     "release:prod": "node scripts/release-channel.mjs --channel prod",
     "release:beta": "node scripts/release-channel.mjs --channel beta"
@@ -16,6 +18,7 @@
     "acorn": "8.15.0",
     "electron": "42.1.0",
     "electron-builder": "26.8.1",
+    "playwright": "1.61.0",
     "ws": "8.20.0"
   }
 }
