@@ -61,7 +61,7 @@ jobs:
           cache: npm
 
       - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y p7zip-full jq libarchive-tools xvfb
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full jq libarchive-tools xvfb x11-utils
 
       - name: Install repo deps
         run: npm ci
@@ -126,7 +126,7 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y p7zip-full jq libarchive-tools xvfb
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full jq libarchive-tools xvfb x11-utils
 
       - name: Install repo deps
         run: npm ci
@@ -312,7 +312,7 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y p7zip-full jq libarchive-tools xvfb
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full jq libarchive-tools xvfb x11-utils
 
       - name: Install repo deps
         run: npm ci

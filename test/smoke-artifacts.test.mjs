@@ -14,7 +14,8 @@ test("desktop boot smoke accepts a silent process still alive at timeout", () =>
     {
       exitCode: null,
       timedOut: true,
-      bootSignal: "alive-timeout"
+      bootSignal: "alive-timeout",
+      inspectedWindows: false
     }
   );
 });
@@ -40,5 +41,18 @@ test("desktop boot smoke still rejects early failed exits", () => {
       stderr: "failed before app ready"
     }),
     /desktop binary exited early/
+  );
+});
+
+test("desktop boot smoke rejects native failed-start dialogs", () => {
+  assert.throws(
+    () => evaluateDesktopBootResult({
+      code: null,
+      timedOut: true,
+      stdout: "",
+      stderr: "",
+      windowTree: '0x200001 "Codex (Beta) failed to start.": ("codex-app-linux-beta-bin" "Codex (Beta)")'
+    }),
+    /desktop binary showed startup failure dialog/
   );
 });
