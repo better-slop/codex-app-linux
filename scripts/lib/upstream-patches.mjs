@@ -627,7 +627,7 @@ function patchDynamicToolThreadStartBridge(source, patch = findDynamicToolThread
     ? ""
     : [
         `function ${dynamicToolThreadStartBridgeMarker}(e){if(e?.method!==\`thread/start\`||e.params==null||!Array.isArray(e.params.dynamicTools))return e;return{...e,params:{...e.params,dynamicTools:e.params.dynamicTools.flatMap(e=>{let t=__codexLinuxNormalizeThreadStartBridgeTool(e);return t==null?[]:[t]})}}}`,
-        `function __codexLinuxNormalizeThreadStartBridgeTool(e){if(e==null||typeof e!==\`object\`)return e;if(e.type===\`function\`){if(e.inputSchema!=null)return e;if(e.input_schema!=null)return{...e,inputSchema:e.input_schema};if(e.parameters!=null)return{...e,inputSchema:e.parameters};return null}if(Array.isArray(e.tools)){let t=e.tools.flatMap(e=>{let t=__codexLinuxNormalizeThreadStartBridgeTool(e);return t==null?[]:[t]});return{...e,tools:t}}return e}`
+        `function __codexLinuxNormalizeThreadStartBridgeTool(e){if(e==null||typeof e!==\`object\`)return e;if(Array.isArray(e.tools)){let t=e.tools.flatMap(e=>{let t=__codexLinuxNormalizeThreadStartBridgeTool(e);return t==null?[]:[t]});return{...e,tools:t}}let t=e.type===\`function\`||typeof e.name===\`string\`;if(!t)return e;if(e.inputSchema!=null)return{...e,type:e.type??\`function\`};if(e.input_schema!=null)return{...e,type:e.type??\`function\`,inputSchema:e.input_schema};if(e.parameters!=null)return{...e,type:e.type??\`function\`,inputSchema:e.parameters};return null}`
       ].join("");
   const replacements = patch.patches.map(target => {
     const requestSource = source.slice(target.requestStart, target.requestEnd);

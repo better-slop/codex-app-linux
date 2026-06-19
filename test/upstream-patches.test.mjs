@@ -373,7 +373,7 @@ test("patchDynamicToolThreadStartBridgeSource normalizes final Electron bridge r
   const source = [
     "class Bridge{constructor(){this.requests=[]}getAppServerConnection(){return{handleClientRequest:async(e,t)=>{this.requests.push(t)},handlePrewarmThreadStart:async(e,t)=>{this.requests.push(t)}}}",
     "async handleMessage(e,n){switch(n.type){case`mcp-request`:{let t=n.request;await this.getAppServerConnection(n.hostId).handleClientRequest({},t);break}case`thread-prewarm-start`:await this.getAppServerConnection(n.hostId).handlePrewarmThreadStart({},n.request);break}}}",
-    "let dynamicTools=[{type:`namespace`,name:`codex_app`,tools:[{type:`function`,name:`good`,inputSchema:{type:`object`}},{type:`function`,name:`snake`,input_schema:{type:`object`}},{type:`function`,name:`params`,parameters:{type:`object`}},{type:`function`,name:`bad`},{type:`other`,name:`untouched`}]},{type:`function`,name:`top`,parameters:{type:`object`}},{type:`function`,name:`topBad`}];",
+    "let dynamicTools=[{type:`namespace`,name:`codex_app`,tools:[{type:`function`,name:`good`,inputSchema:{type:`object`}},{name:`plainSnake`,input_schema:{type:`object`}},{name:`plainParams`,parameters:{type:`object`}},{type:`function`,name:`bad`},{type:`other`,id:`untouched`}]},{name:`top`,parameters:{type:`object`}},{name:`topBad`}];",
     "globalThis.bridge=new Bridge;await globalThis.bridge.handleMessage(null,{type:`mcp-request`,hostId:`local`,request:{id:`1`,method:`thread/start`,params:{dynamicTools}}});await globalThis.bridge.handleMessage(null,{type:`thread-prewarm-start`,hostId:`local`,request:{id:`2`,method:`thread/start`,params:{dynamicTools}}});"
   ].join("");
 
@@ -388,9 +388,10 @@ test("patchDynamicToolThreadStartBridgeSource normalizes final Electron bridge r
   const namespaceTools = normal.params.dynamicTools[0].tools;
 
   assert.equal(hasUnguardedDynamicToolThreadStartBridgeSource(patched), false);
-  assert.equal(JSON.stringify(namespaceTools.map(tool => tool.name)), JSON.stringify(["good", "snake", "params", "untouched"]));
+  assert.equal(JSON.stringify(namespaceTools.map(tool => tool.name ?? tool.id)), JSON.stringify(["good", "plainSnake", "plainParams", "untouched"]));
   assert.equal(namespaceTools.filter(tool => tool.type === "function").every(tool => tool.inputSchema?.type === "object"), true);
   assert.equal(JSON.stringify(normal.params.dynamicTools.map(tool => tool.name)), JSON.stringify(["codex_app", "top"]));
+  assert.equal(normal.params.dynamicTools[1].type, "function");
   assert.deepEqual(prewarm.params.dynamicTools, normal.params.dynamicTools);
 });
 
