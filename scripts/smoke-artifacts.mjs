@@ -2,9 +2,11 @@ import fs from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import process from "node:process";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import * as asar from "@electron/asar";
 
 import { channelPaths, getChannel, parseArgs, projectRoot } from "./lib/config.mjs";
+import { hasUnguardedOwlFeatureBindingSource } from "./lib/upstream-patches.mjs";
 
 const nativeExtensions = new Set([
   "",
@@ -59,6 +61,9 @@ export async function smokeLinuxArtifacts({
   );
   await runCheck(summary, "cua_node_repl", () =>
     smokeNodeRepl(path.join(resourcesDir, "cua_node", "bin", "node_repl"))
+  );
+  await runCheck(summary, "owl-runtime-contract", () =>
+    assertOwlRuntimeContract(resourcesDir)
   );
 
   if (packageDir) {
@@ -220,9 +225,13 @@ async function smokeDesktopBinary(executablePath, resourcesDir) {
     env: {
       ...process.env,
       CODEX_CLI_PATH: path.join(resourcesDir, "codex"),
-      ELECTRON_DISABLE_GPU: "1"
+      ELECTRON_DISABLE_GPU: "1",
+      ELECTRON_ENABLE_LOGGING: "1"
     },
-    allowTimeout: true
+    allowTimeout: true,
+    onTimeout: () => ({
+      windowTree: readX11WindowTree()
+    })
   });
 
   return evaluateDesktopBootResult(result);
@@ -230,11 +239,19 @@ async function smokeDesktopBinary(executablePath, resourcesDir) {
 
 export function evaluateDesktopBootResult(result) {
   const combined = `${result.stdout || ""}\n${result.stderr || ""}`;
+  const windowTree = result.windowTree || "";
+  const diagnosticText = `${combined}\n${windowTree}`;
   const reachedBootLog = combined.includes("Launching app") || combined.includes("Codex CLI initialized");
   const fatalOutput = /(Fatal|TypeError|ReferenceError|ErrorBoundary|segmentation fault|core dumped)/i.test(combined);
+  const startupFailureDialog =
+    /failed to start|No such binding was linked|electron_common_owl_features/i.test(windowTree);
 
   if (fatalOutput) {
     throw new Error(`desktop binary printed fatal output: exit=${result.code} output=${combined.slice(0, 600)}`);
+  }
+
+  if (startupFailureDialog) {
+    throw new Error(`desktop binary showed startup failure dialog: exit=${result.code} output=${diagnosticText.slice(0, 1000)}`);
   }
 
   if (result.code && result.code !== 0 && !result.timedOut) {
@@ -248,8 +265,72 @@ export function evaluateDesktopBootResult(result) {
   return {
     exitCode: result.code,
     timedOut: result.timedOut,
-    bootSignal: reachedBootLog ? "log" : result.timedOut ? "alive-timeout" : "clean-exit"
+    bootSignal: reachedBootLog ? "log" : result.timedOut ? "alive-timeout" : "clean-exit",
+    inspectedWindows: Boolean(windowTree)
   };
+}
+
+async function assertOwlRuntimeContract(resourcesDir) {
+  const metadataPath = path.join(resourcesDir, "owl-electron-app.json");
+  let metadata;
+
+  try {
+    metadata = JSON.parse(await fs.readFile(metadataPath, "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return {
+        runtimeName: null,
+        skipped: true
+      };
+    }
+
+    throw error;
+  }
+
+  if (metadata.runtimeName !== "owl") {
+    return {
+      runtimeName: metadata.runtimeName || null
+    };
+  }
+
+  const appAsarPath = path.join(resourcesDir, "app.asar");
+  const unsafeSources = await findUnguardedOwlBindingSources(appAsarPath);
+
+  if (unsafeSources.length > 0) {
+    throw new Error(
+      `Owl runtime requires electron_common_owl_features, but ${unsafeSources.slice(0, 5).join(", ")} lacks the Linux fallback; stock Electron will show "No such binding was linked: electron_common_owl_features"`
+    );
+  }
+
+  return {
+    runtimeName: metadata.runtimeName,
+    checked: true
+  };
+}
+
+async function findUnguardedOwlBindingSources(appAsarPath) {
+  const files = await asar.listPackage(appAsarPath);
+  const unsafe = [];
+
+  for (const file of files) {
+    if (!/\.(?:js|mjs|cjs)$/i.test(file)) {
+      continue;
+    }
+
+    let source;
+
+    try {
+      source = asar.extractFile(appAsarPath, file.replace(/^\//, "")).toString("utf8");
+    } catch {
+      continue;
+    }
+
+    if (hasUnguardedOwlFeatureBindingSource(source)) {
+      unsafe.push(file.replace(/^\//, ""));
+    }
+  }
+
+  return unsafe;
 }
 
 async function smokeWebShell({ linuxDir, packageDir, port }) {
@@ -448,6 +529,7 @@ function runCommand(command, args, options = {}) {
     capture = false,
     env = process.env,
     input,
+    onTimeout,
     timeoutMs = 30_000
   } = options;
 
@@ -460,8 +542,10 @@ function runCommand(command, args, options = {}) {
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let timeoutMetadata = {};
     const timer = setTimeout(() => {
       timedOut = true;
+      timeoutMetadata = onTimeout?.() || {};
       child.kill("SIGTERM");
     }, timeoutMs);
 
@@ -487,7 +571,8 @@ function runCommand(command, args, options = {}) {
         code,
         timedOut,
         stdout,
-        stderr
+        stderr,
+        ...timeoutMetadata
       });
     });
 
@@ -495,6 +580,20 @@ function runCommand(command, args, options = {}) {
       child.stdin?.end(input);
     }
   });
+}
+
+function readX11WindowTree() {
+  if (!process.env.DISPLAY) {
+    return "";
+  }
+
+  const result = spawnSync("xwininfo", ["-root", "-tree"], {
+    env: process.env,
+    encoding: "utf8",
+    timeout: 2000
+  });
+
+  return `${result.stdout || ""}\n${result.stderr || ""}`;
 }
 
 function collectProcessOutput(child) {

@@ -1,9 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import vm from "node:vm";
 
 import {
+  hasUnguardedOwlFeatureBindingSource,
   patchDisableTransparencySource,
+  patchLinuxOwlFeatureBindingSource,
   patchLinuxOpenTargetsSource,
   upstreamPatchContracts
 } from "../scripts/lib/upstream-patches.mjs";
@@ -232,4 +235,63 @@ test("patchDisableTransparencySource is idempotent", () => {
   const repatched = patchDisableTransparencySource(patched);
 
   assert.equal(repatched, patched);
+});
+
+test("patchLinuxOwlFeatureBindingSource falls back when stock Linux Electron lacks Owl bindings", () => {
+  const source = [
+    "let Ge={parse:e=>e};",
+    "function Ze(e){return Qe().isOwlFeatureEnabled(e)}",
+    "function Qe(){let e=process._linkedBinding;if(typeof e!=`function`)throw Error(`Owl feature binding is unavailable`);return Ge.parse(e.call(process,`electron_common_owl_features`))}",
+    "globalThis.result=Ze(`WorkspaceRootDrop`)"
+  ].join(";");
+
+  const patched = patchLinuxOwlFeatureBindingSource(source);
+  const context = {
+    process: {
+      platform: "linux",
+      _linkedBinding(name) {
+        throw new Error(`No such binding was linked: ${name}`);
+      }
+    },
+    globalThis: {}
+  };
+
+  vm.runInNewContext(patched, context);
+
+  assert.equal(context.globalThis.result, false);
+  assert.match(patched, /__codexLinuxOwlFeatureFallback/);
+});
+
+test("patchLinuxOwlFeatureBindingSource is idempotent", () => {
+  const source = [
+    "let Ge={parse:e=>e};",
+    "function Qe(){let e=process._linkedBinding;if(typeof e!=`function`)throw Error(`Owl feature binding is unavailable`);return Ge.parse(e.call(process,`electron_common_owl_features`))}"
+  ].join(";");
+  const patched = patchLinuxOwlFeatureBindingSource(source);
+
+  assert.equal(patchLinuxOwlFeatureBindingSource(patched), patched);
+});
+
+test("patchLinuxOwlFeatureBindingSource patches every Owl binding helper in one bundle", () => {
+  const source = [
+    "let Ge={parse:e=>e},Je={parse:e=>e};",
+    "function Qe(){let e=process._linkedBinding;if(typeof e!=`function`)throw Error(`Owl feature binding is unavailable`);return Ge.parse(e.call(process,`electron_common_owl_features`))}",
+    "function Re(){let t=process._linkedBinding;if(typeof t!=`function`)throw Error(`Owl feature binding is unavailable`);return Je.parse(t.call(process,`electron_common_owl_features`))}"
+  ].join(";");
+
+  const patched = patchLinuxOwlFeatureBindingSource(source);
+
+  assert.equal(hasUnguardedOwlFeatureBindingSource(patched), false);
+  assert.equal(patched.match(/function __codexLinuxOwlFeatureFallback/g).length, 1);
+  assert.equal(patched.match(/return __codexLinuxOwlFeatureFallback\(\)/g).length, 4);
+});
+
+test("hasUnguardedOwlFeatureBindingSource detects mixed patched and unpatched helpers", () => {
+  const mixedSource = [
+    "let Ge={parse:e=>e},Je={parse:e=>e};",
+    "function Qe(){let e=process._linkedBinding;if(typeof e!=`function`){if(process.platform===`linux`)return __codexLinuxOwlFeatureFallback();throw Error(`Owl feature binding is unavailable`)}try{return Ge.parse(e.call(process,`electron_common_owl_features`))}catch(e){if(process.platform===`linux`&&/electron_common_owl_features|No such binding|Owl feature binding is unavailable/.test(String(e&&e.message||e)))return __codexLinuxOwlFeatureFallback();throw e}}function __codexLinuxOwlFeatureFallback(){return{isOwlFeatureEnabled:()=>!1}}",
+    "function Re(){let t=process._linkedBinding;if(typeof t!=`function`)throw Error(`Owl feature binding is unavailable`);return Je.parse(t.call(process,`electron_common_owl_features`))}"
+  ].join(";");
+
+  assert.equal(hasUnguardedOwlFeatureBindingSource(mixedSource), true);
 });
