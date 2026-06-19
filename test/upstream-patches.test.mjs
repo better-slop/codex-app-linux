@@ -6,14 +6,17 @@ import vm from "node:vm";
 import {
   hasUnguardedDynamicToolSchemaContractSource,
   hasUnguardedDynamicToolStartResponseSource,
+  hasUnguardedDynamicToolThreadStartBridgeSource,
   hasUnguardedDynamicToolThreadStartRequestSource,
   hasUnguardedOwlFeatureBindingSource,
   patchDynamicToolSchemaContractSource,
   patchDynamicToolStartResponseSource,
+  patchDynamicToolThreadStartBridgeSource,
   patchDynamicToolThreadStartRequestSource,
   patchDisableTransparencySource,
   patchLinuxOwlFeatureBindingSource,
   patchLinuxOpenTargetsSource,
+  dynamicToolThreadStartBridgeContract,
   dynamicToolStartResponseContract,
   upstreamPatchContracts,
   dynamicToolSchemaContract,
@@ -149,6 +152,7 @@ test("upstream patch contracts declare required contract surface", () => {
     upstreamPatchContracts.map(contract => contract.name),
     [
       "dynamic-tool-start-response",
+      "dynamic-tool-thread-start-bridge",
       "open-target-dispatcher",
       "linux-window-background",
       "linux-window-transparency"
@@ -159,6 +163,11 @@ test("upstream patch contracts declare required contract surface", () => {
     ["apply", "assertAfter", "assertBefore", "find", "name"]
   );
   assert.equal(dynamicToolStartResponseContract.name, "dynamic-tool-start-response");
+  assert.deepEqual(
+    Object.keys(dynamicToolThreadStartBridgeContract).sort(),
+    ["apply", "assertAfter", "assertBefore", "find", "name"]
+  );
+  assert.equal(dynamicToolThreadStartBridgeContract.name, "dynamic-tool-thread-start-bridge");
   assert.deepEqual(
     Object.keys(dynamicToolSchemaContract).sort(),
     ["apply", "assertAfter", "assertBefore", "find", "name"]
@@ -358,6 +367,44 @@ test("hasUnguardedDynamicToolStartResponseSource detects unpatched desktop resol
   const source = "class Manager{handleDynamicToolsForThreadStartResponse(e,t){let n=this.pendingDynamicToolsForThreadStartRequests.get(t.requestId);if(!n||n.originId!==e.id)return;this.pendingDynamicToolsForThreadStartRequests.delete(t.requestId),clearTimeout(n.timeout),n.resolve(t.dynamicTools)}}";
 
   assert.equal(hasUnguardedDynamicToolStartResponseSource(source), true);
+});
+
+test("patchDynamicToolThreadStartBridgeSource normalizes final Electron bridge requests", async () => {
+  const source = [
+    "class Bridge{constructor(){this.requests=[]}getAppServerConnection(){return{handleClientRequest:async(e,t)=>{this.requests.push(t)},handlePrewarmThreadStart:async(e,t)=>{this.requests.push(t)}}}",
+    "async handleMessage(e,n){switch(n.type){case`mcp-request`:{let t=n.request;await this.getAppServerConnection(n.hostId).handleClientRequest({},t);break}case`thread-prewarm-start`:await this.getAppServerConnection(n.hostId).handlePrewarmThreadStart({},n.request);break}}}",
+    "let dynamicTools=[{type:`namespace`,name:`codex_app`,tools:[{type:`function`,name:`good`,inputSchema:{type:`object`}},{type:`function`,name:`snake`,input_schema:{type:`object`}},{type:`function`,name:`params`,parameters:{type:`object`}},{type:`function`,name:`bad`},{type:`other`,name:`untouched`}]},{type:`function`,name:`top`,parameters:{type:`object`}},{type:`function`,name:`topBad`}];",
+    "globalThis.bridge=new Bridge;await globalThis.bridge.handleMessage(null,{type:`mcp-request`,hostId:`local`,request:{id:`1`,method:`thread/start`,params:{dynamicTools}}});await globalThis.bridge.handleMessage(null,{type:`thread-prewarm-start`,hostId:`local`,request:{id:`2`,method:`thread/start`,params:{dynamicTools}}});"
+  ].join("");
+
+  const patched = patchDynamicToolThreadStartBridgeSource(source);
+  const context = {
+    globalThis: {}
+  };
+
+  await vm.runInNewContext(`(async()=>{${patched}})()`, context);
+
+  const [normal, prewarm] = context.globalThis.bridge.requests;
+  const namespaceTools = normal.params.dynamicTools[0].tools;
+
+  assert.equal(hasUnguardedDynamicToolThreadStartBridgeSource(patched), false);
+  assert.equal(JSON.stringify(namespaceTools.map(tool => tool.name)), JSON.stringify(["good", "snake", "params", "untouched"]));
+  assert.equal(namespaceTools.filter(tool => tool.type === "function").every(tool => tool.inputSchema?.type === "object"), true);
+  assert.equal(JSON.stringify(normal.params.dynamicTools.map(tool => tool.name)), JSON.stringify(["codex_app", "top"]));
+  assert.deepEqual(prewarm.params.dynamicTools, normal.params.dynamicTools);
+});
+
+test("patchDynamicToolThreadStartBridgeSource is idempotent", () => {
+  const source = "class Bridge{getAppServerConnection(){return{handleClientRequest(){},handlePrewarmThreadStart(){}}}async handleMessage(e,n){switch(n.type){case`mcp-request`:{let t=n.request;await this.getAppServerConnection(n.hostId).handleClientRequest({},t);break}case`thread-prewarm-start`:await this.getAppServerConnection(n.hostId).handlePrewarmThreadStart({},n.request);break}}}";
+  const patched = patchDynamicToolThreadStartBridgeSource(source);
+
+  assert.equal(patchDynamicToolThreadStartBridgeSource(patched), patched);
+});
+
+test("hasUnguardedDynamicToolThreadStartBridgeSource detects raw Electron bridge requests", () => {
+  const source = "class Bridge{getAppServerConnection(){return{handleClientRequest(){},handlePrewarmThreadStart(){}}}async handleMessage(e,n){switch(n.type){case`mcp-request`:{let t=n.request;await this.getAppServerConnection(n.hostId).handleClientRequest({},t);break}case`thread-prewarm-start`:await this.getAppServerConnection(n.hostId).handlePrewarmThreadStart({},n.request);break}}}";
+
+  assert.equal(hasUnguardedDynamicToolThreadStartBridgeSource(source), true);
 });
 
 test("patchDynamicToolSchemaContractSource normalizes thread-start dynamic tool schemas", async () => {

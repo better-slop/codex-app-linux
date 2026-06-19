@@ -27,6 +27,7 @@ const owlFeatureFallbackMarker = "__codexLinuxOwlFeatureFallback";
 const dynamicToolSchemaContractMarker = "__codexLinuxDynamicToolSchemaContract";
 const dynamicToolStartResponseMarker = "__codexLinuxNormalizeDynamicToolsForThreadStart";
 const dynamicToolThreadStartRequestMarker = "__codexLinuxNormalizeThreadStartRequestParams";
+const dynamicToolThreadStartBridgeMarker = "__codexLinuxNormalizeThreadStartBridgeRequest";
 
 export class UpstreamPatchContractError extends Error {
   constructor(contractName, message, options = {}) {
@@ -46,6 +47,14 @@ export const dynamicToolStartResponseContract = {
   assertAfter: assertDynamicToolStartResponseAfter
 };
 
+export const dynamicToolThreadStartBridgeContract = {
+  name: "dynamic-tool-thread-start-bridge",
+  find: findDynamicToolThreadStartBridgePatch,
+  assertBefore: assertDynamicToolThreadStartBridgeBefore,
+  apply: patchDynamicToolThreadStartBridge,
+  assertAfter: assertDynamicToolThreadStartBridgeAfter
+};
+
 export const upstreamPatchContracts = [
   // Why: upstream can return runtime-built dynamic tools from the renderer
   // just before thread creation. App-server rejects any function tool without
@@ -53,6 +62,13 @@ export const upstreamPatchContracts = [
   // Contract: the main bundle still resolves dynamic-tools-for-thread-start
   // responses through handleDynamicToolsForThreadStartResponse.
   dynamicToolStartResponseContract,
+  // Why: local desktop thread creation can bypass the renderer request client
+  // and enter Electron through host-command handlers. App-server still rejects
+  // malformed dynamic tool schemas there, so Linux normalizes the final bridge
+  // request before stdio transport. Contract: the main bundle still forwards
+  // mcp-request and thread-prewarm-start through handleClientRequest and
+  // handlePrewarmThreadStart.
+  dynamicToolThreadStartBridgeContract,
   // Why: upstream desktop only registers macOS open-in-editor targets; Linux
   // needs locally installed editors and terminal-backed Neovim. Contract:
   // upstream still exposes an open-target registry, runner, and preferred-target
@@ -145,11 +161,11 @@ export function patchDynamicToolStartResponseSource(source) {
 }
 
 export function patchLinuxOpenTargetsSource(source) {
-  return applyUpstreamPatchContract(source, upstreamPatchContracts[1]);
+  return applyUpstreamPatchContract(source, upstreamPatchContracts[2]);
 }
 
 export function patchDisableTransparencySource(source) {
-  return applyUpstreamPatchContracts(source, upstreamPatchContracts.slice(2));
+  return applyUpstreamPatchContracts(source, upstreamPatchContracts.slice(3));
 }
 
 export function patchLinuxOwlFeatureBindingSource(source) {
@@ -187,6 +203,10 @@ export function patchDynamicToolThreadStartRequestSource(source) {
   return applyUpstreamPatchContract(source, dynamicToolThreadStartRequestContract);
 }
 
+export function patchDynamicToolThreadStartBridgeSource(source) {
+  return applyUpstreamPatchContract(source, dynamicToolThreadStartBridgeContract);
+}
+
 export function hasUnguardedOwlFeatureBindingSource(source) {
   let index = -1;
 
@@ -220,6 +240,12 @@ export function hasUnguardedDynamicToolStartResponseSource(source) {
 
 export function hasUnguardedDynamicToolThreadStartRequestSource(source) {
   const patch = findDynamicToolThreadStartRequestPatch(source);
+
+  return patch.status === "patch";
+}
+
+export function hasUnguardedDynamicToolThreadStartBridgeSource(source) {
+  const patch = findDynamicToolThreadStartBridgePatch(source);
 
   return patch.status === "patch";
 }
@@ -502,6 +528,114 @@ function patchDynamicToolStartResponse(source, patch = findDynamicToolStartRespo
       start: target.argumentStart,
       end: target.argumentEnd,
       replacement: `${dynamicToolStartResponseMarker}(${argumentSource})`
+    };
+  });
+
+  replacements.sort((left, right) => right.start - left.start);
+
+  let patched = source;
+  for (const replacement of replacements) {
+    patched = `${patched.slice(0, replacement.start)}${replacement.replacement}${patched.slice(replacement.end)}`;
+  }
+
+  return helper ? `${patched}\n${helper}` : patched;
+}
+
+function findDynamicToolThreadStartBridgePatch(source) {
+  const patches = findDynamicToolThreadStartBridgePatches(source);
+
+  if (patches.length > 0) {
+    return {
+      status: "patch",
+      patches
+    };
+  }
+
+  if (
+    source.includes(dynamicToolThreadStartBridgeMarker) &&
+    source.includes("handleClientRequest") &&
+    source.includes("handlePrewarmThreadStart")
+  ) {
+    return { status: "patched" };
+  }
+
+  if (source.includes("handleClientRequest") || source.includes("handlePrewarmThreadStart")) {
+    throw new Error("Unable to apply upstream patch; missing thread/start bridge request forwarding");
+  }
+
+  throw new Error("Unable to apply upstream patch; missing thread/start bridge request forwarding");
+}
+
+function findDynamicToolThreadStartBridgePatches(source) {
+  const ast = parseJavaScript(source);
+  const patches = [];
+
+  walkAst(ast, node => {
+    if (
+      node.type !== "CallExpression" ||
+      (
+        !isMemberPropertyNamed(node.callee, "handleClientRequest") &&
+        !isMemberPropertyNamed(node.callee, "handlePrewarmThreadStart")
+      )
+    ) {
+      return;
+    }
+
+    const requestArg = node.arguments[1];
+
+    if (!requestArg || isCallToIdentifier(requestArg, dynamicToolThreadStartBridgeMarker)) {
+      return;
+    }
+
+    patches.push({
+      requestStart: requestArg.start,
+      requestEnd: requestArg.end
+    });
+  });
+
+  return patches;
+}
+
+function assertDynamicToolThreadStartBridgeBefore(source) {
+  const patch = findDynamicToolThreadStartBridgePatch(source);
+
+  if (!patch || patch.status !== "patch") {
+    throw new Error("missing unguarded thread/start bridge request");
+  }
+}
+
+function assertDynamicToolThreadStartBridgeAfter(source) {
+  if (!source.includes(dynamicToolThreadStartBridgeMarker)) {
+    throw new Error("missing thread/start bridge request normalizer");
+  }
+
+  if (!source.includes("handleClientRequest") || !source.includes("handlePrewarmThreadStart")) {
+    throw new Error("missing app-server bridge request forwarding");
+  }
+
+  if (hasUnguardedDynamicToolThreadStartBridgeSource(source)) {
+    throw new Error("unguarded thread/start bridge request forwarding remains");
+  }
+}
+
+function patchDynamicToolThreadStartBridge(source, patch = findDynamicToolThreadStartBridgePatch(source)) {
+  if (patch?.status === "patched") {
+    return source;
+  }
+
+  const helper = source.includes(dynamicToolThreadStartBridgeMarker)
+    ? ""
+    : [
+        `function ${dynamicToolThreadStartBridgeMarker}(e){if(e?.method!==\`thread/start\`||e.params==null||!Array.isArray(e.params.dynamicTools))return e;return{...e,params:{...e.params,dynamicTools:e.params.dynamicTools.flatMap(e=>{let t=__codexLinuxNormalizeThreadStartBridgeTool(e);return t==null?[]:[t]})}}}`,
+        `function __codexLinuxNormalizeThreadStartBridgeTool(e){if(e==null||typeof e!==\`object\`)return e;if(e.type===\`function\`){if(e.inputSchema!=null)return e;if(e.input_schema!=null)return{...e,inputSchema:e.input_schema};if(e.parameters!=null)return{...e,inputSchema:e.parameters};return null}if(Array.isArray(e.tools)){let t=e.tools.flatMap(e=>{let t=__codexLinuxNormalizeThreadStartBridgeTool(e);return t==null?[]:[t]});return{...e,tools:t}}return e}`
+      ].join("");
+  const replacements = patch.patches.map(target => {
+    const requestSource = source.slice(target.requestStart, target.requestEnd);
+
+    return {
+      start: target.requestStart,
+      end: target.requestEnd,
+      replacement: `${dynamicToolThreadStartBridgeMarker}(${requestSource})`
     };
   });
 
@@ -1178,6 +1312,13 @@ function isMemberExpressionNamed(node, objectName, property) {
     !node.computed &&
     isIdentifierNamed(node.object, objectName) &&
     propertyName(node.property) === property
+  );
+}
+
+function isCallToIdentifier(node, name) {
+  return (
+    node?.type === "CallExpression" &&
+    isIdentifierNamed(node.callee, name)
   );
 }
 

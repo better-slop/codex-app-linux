@@ -9,6 +9,7 @@ import { channelPaths, getChannel, parseArgs, projectRoot } from "./lib/config.m
 import {
   hasUnguardedDynamicToolSchemaContractSource,
   hasUnguardedDynamicToolStartResponseSource,
+  hasUnguardedDynamicToolThreadStartBridgeSource,
   hasUnguardedDynamicToolThreadStartRequestSource,
   hasUnguardedOwlFeatureBindingSource
 } from "./lib/upstream-patches.mjs";
@@ -78,6 +79,9 @@ export async function smokeLinuxArtifacts({
   );
   await runCheck(summary, "dynamic-tool-start-response-contract", () =>
     assertDynamicToolStartResponseContract(resourcesDir)
+  );
+  await runCheck(summary, "dynamic-tool-thread-start-bridge-contract", () =>
+    assertDynamicToolThreadStartBridgeContract(resourcesDir)
   );
   await runCheck(summary, "dynamic-tool-thread-start-request-contract", () =>
     assertDynamicToolThreadStartRequestContract(resourcesDir)
@@ -398,6 +402,25 @@ async function assertDynamicToolStartResponseContract(resourcesDir) {
   };
 }
 
+async function assertDynamicToolThreadStartBridgeContract(resourcesDir) {
+  const appAsarPath = path.join(resourcesDir, "app.asar");
+  const unsafeSources = await findUnguardedDynamicToolThreadStartBridgeSources(appAsarPath);
+
+  if (unsafeSources.unsafe.length > 0) {
+    throw new Error(
+      `Electron bridge thread/start requests must normalize dynamicTools inputSchema before app-server; ${unsafeSources.unsafe.slice(0, 5).join(", ")} still forwards raw params and can fail with "Invalid request: missing field inputSchema"`
+    );
+  }
+
+  if (unsafeSources.checked === 0) {
+    throw new Error("Unable to find Electron bridge thread/start request contract in app.asar");
+  }
+
+  return {
+    checked: unsafeSources.checked
+  };
+}
+
 async function assertDynamicToolThreadStartRequestContract(resourcesDir) {
   const appAsarPath = path.join(resourcesDir, "app.asar");
   const unsafeSources = await findUnguardedDynamicToolThreadStartRequestSources(appAsarPath);
@@ -414,6 +437,45 @@ async function assertDynamicToolThreadStartRequestContract(resourcesDir) {
 
   return {
     checked: unsafeSources.checked
+  };
+}
+
+async function findUnguardedDynamicToolThreadStartBridgeSources(appAsarPath) {
+  const files = await asar.listPackage(appAsarPath);
+  const unsafe = [];
+  let checked = 0;
+
+  for (const file of files) {
+    if (!/\.(?:js|mjs|cjs)$/i.test(file)) {
+      continue;
+    }
+
+    let source;
+
+    try {
+      source = asar.extractFile(appAsarPath, file.replace(/^\//, "")).toString("utf8");
+    } catch {
+      continue;
+    }
+
+    if (
+      !source.includes("app_server.bridge_received") ||
+      !source.includes("handleClientRequest") ||
+      !source.includes("handlePrewarmThreadStart")
+    ) {
+      continue;
+    }
+
+    checked++;
+
+    if (hasUnguardedDynamicToolThreadStartBridgeSource(source)) {
+      unsafe.push(file.replace(/^\//, ""));
+    }
+  }
+
+  return {
+    checked,
+    unsafe
   };
 }
 
