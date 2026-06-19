@@ -6,6 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import * as asar from "@electron/asar";
 
 import { channelPaths, getChannel, parseArgs, projectRoot } from "./lib/config.mjs";
+import { hasUnguardedOwlFeatureBindingSource } from "./lib/upstream-patches.mjs";
 
 const nativeExtensions = new Set([
   "",
@@ -16,7 +17,6 @@ const nativeExtensions = new Set([
   ".node",
   ".so"
 ]);
-const owlFeatureFallbackMarker = "__codexLinuxOwlFeatureFallback";
 
 if (isDirectRun()) {
   const args = parseArgs(process.argv.slice(2));
@@ -325,10 +325,7 @@ async function findUnguardedOwlBindingSources(appAsarPath) {
       continue;
     }
 
-    if (
-      source.includes("electron_common_owl_features") &&
-      !source.includes(owlFeatureFallbackMarker)
-    ) {
+    if (hasUnguardedOwlFeatureBindingSource(source)) {
       unsafe.push(file.replace(/^\//, ""));
     }
   }

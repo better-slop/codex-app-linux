@@ -112,7 +112,49 @@ export function patchDisableTransparencySource(source) {
 }
 
 export function patchLinuxOwlFeatureBindingSource(source) {
-  return applyUpstreamPatchContract(source, owlFeatureBindingContract);
+  try {
+    let patched = source;
+
+    while (true) {
+      const patch = findOwlFeatureBindingPatch(patched);
+
+      if (patch.status === "patched") {
+        break;
+      }
+
+      patched = patchOwlFeatureBinding(patched, patch);
+    }
+
+    assertOwlFeatureBindingAfter(patched);
+    return patched;
+  } catch (error) {
+    if (error instanceof UpstreamPatchContractError) {
+      throw error;
+    }
+
+    throw new UpstreamPatchContractError(owlFeatureBindingContract.name, error.message, {
+      cause: error
+    });
+  }
+}
+
+export function hasUnguardedOwlFeatureBindingSource(source) {
+  let index = -1;
+
+  while ((index = source.indexOf("electron_common_owl_features", index + 1)) !== -1) {
+    const functionStart = source.lastIndexOf("function ", index);
+    const functionEnd = source.indexOf("function ", index + 1);
+    const bindingScope = source.slice(
+      functionStart === -1 ? Math.max(0, index - 500) : functionStart,
+      functionEnd === -1 ? Math.min(source.length, index + 1000) : functionEnd
+    );
+
+    if (!bindingScope.includes(owlFeatureFallbackMarker)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export function applyUpstreamPatchContracts(source, contracts) {
@@ -189,23 +231,27 @@ async function patchOwlFeatureBindingChunks(buildDir, entries) {
 }
 
 function findOwlFeatureBindingPatch(source) {
-  if (source.includes(owlFeatureFallbackMarker)) {
+  const match = source.match(owlFeatureBindingRegex);
+
+  if (match) {
+    return {
+      status: "patch",
+      anchor: match[0],
+      functionName: match[1],
+      bindingVar: match[2],
+      parserVar: match[3]
+    };
+  }
+
+  if (source.includes("electron_common_owl_features") && source.includes(owlFeatureFallbackMarker)) {
     return { status: "patched" };
   }
 
-  const match = source.match(owlFeatureBindingRegex);
-
-  if (!match) {
+  if (source.includes("electron_common_owl_features")) {
     throw new Error("Unable to apply upstream patch; missing Owl feature binding helper");
   }
 
-  return {
-    status: "patch",
-    anchor: match[0],
-    functionName: match[1],
-    bindingVar: match[2],
-    parserVar: match[3]
-  };
+  throw new Error("Unable to apply upstream patch; missing Owl feature binding helper");
 }
 
 function assertOwlFeatureBindingBefore(source) {
@@ -224,18 +270,24 @@ function assertOwlFeatureBindingAfter(source) {
   if (!source.includes("electron_common_owl_features")) {
     throw new Error("missing Owl feature binding target");
   }
+
+  if (hasUnguardedOwlFeatureBindingSource(source)) {
+    throw new Error("unpatched Owl feature binding helper remains");
+  }
 }
 
-function patchOwlFeatureBinding(source) {
-  const patch = findOwlFeatureBindingPatch(source);
+function patchOwlFeatureBinding(source, patch = findOwlFeatureBindingPatch(source)) {
 
   if (patch?.status === "patched") {
     return source;
   }
 
+  const fallback = source.includes(owlFeatureFallbackMarker)
+    ? ""
+    : `function ${owlFeatureFallbackMarker}(){return{isOwlFeatureEnabled:()=>!1}}`;
   const replacement = [
     `function ${patch.functionName}(){let ${patch.bindingVar}=process._linkedBinding;if(typeof ${patch.bindingVar}!=\`function\`){if(process.platform===\`linux\`)return ${owlFeatureFallbackMarker}();throw Error(\`Owl feature binding is unavailable\`)}try{return ${patch.parserVar}.parse(${patch.bindingVar}.call(process,\`electron_common_owl_features\`))}catch(e){if(process.platform===\`linux\`&&/electron_common_owl_features|No such binding|Owl feature binding is unavailable/.test(String(e&&e.message||e)))return ${owlFeatureFallbackMarker}();throw e}}`,
-    `function ${owlFeatureFallbackMarker}(){return{isOwlFeatureEnabled:()=>!1}}`
+    fallback
   ].join("");
 
   return replaceOnce(source, patch.anchor, replacement);
