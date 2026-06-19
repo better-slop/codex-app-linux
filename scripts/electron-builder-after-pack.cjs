@@ -83,9 +83,28 @@ function wrapperScript(binaryName) {
   return `#!/bin/sh
 set -eu
 
+script_path="$0"
+
+if command -v readlink >/dev/null 2>&1; then
+  resolved_script="$(readlink -f -- "$script_path" 2>/dev/null || true)"
+
+  if [ -n "$resolved_script" ]; then
+    script_path="$resolved_script"
+  fi
+fi
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd)"
+
 resolve_codex() {
   if [ -n "\${CODEX_CLI_PATH:-}" ] && [ -x "\${CODEX_CLI_PATH}" ]; then
     printf '%s\\n' "\${CODEX_CLI_PATH}"
+    return 0
+  fi
+
+  bundled_codex="$script_dir/resources/codex"
+
+  if [ -x "$bundled_codex" ]; then
+    printf '%s\\n' "$bundled_codex"
     return 0
   fi
 
@@ -105,18 +124,6 @@ if ! resolved_codex="$(resolve_codex)"; then
 fi
 
 export CODEX_CLI_PATH="$resolved_codex"
-
-script_path="$0"
-
-if command -v readlink >/dev/null 2>&1; then
-  resolved_script="$(readlink -f -- "$script_path" 2>/dev/null || true)"
-
-  if [ -n "$resolved_script" ]; then
-    script_path="$resolved_script"
-  fi
-fi
-
-script_dir="$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd)"
 exec "$script_dir/${binaryName}" "$@"
 `;
 }

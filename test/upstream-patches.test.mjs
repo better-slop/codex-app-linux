@@ -4,11 +4,17 @@ import fs from "node:fs/promises";
 import vm from "node:vm";
 
 import {
+  hasUnguardedDynamicToolSchemaContractSource,
+  hasUnguardedDynamicToolStartResponseSource,
   hasUnguardedOwlFeatureBindingSource,
+  patchDynamicToolSchemaContractSource,
+  patchDynamicToolStartResponseSource,
   patchDisableTransparencySource,
   patchLinuxOwlFeatureBindingSource,
   patchLinuxOpenTargetsSource,
-  upstreamPatchContracts
+  dynamicToolStartResponseContract,
+  upstreamPatchContracts,
+  dynamicToolSchemaContract
 } from "../scripts/lib/upstream-patches.mjs";
 
 test("patchLinuxOpenTargetsSource adds Linux editor targets and exposes app paths", () => {
@@ -138,8 +144,23 @@ test("upstream patch contracts declare required contract surface", () => {
   );
   assert.deepEqual(
     upstreamPatchContracts.map(contract => contract.name),
-    ["open-target-dispatcher", "linux-window-background", "linux-window-transparency"]
+    [
+      "dynamic-tool-start-response",
+      "open-target-dispatcher",
+      "linux-window-background",
+      "linux-window-transparency"
+    ]
   );
+  assert.deepEqual(
+    Object.keys(dynamicToolStartResponseContract).sort(),
+    ["apply", "assertAfter", "assertBefore", "find", "name"]
+  );
+  assert.equal(dynamicToolStartResponseContract.name, "dynamic-tool-start-response");
+  assert.deepEqual(
+    Object.keys(dynamicToolSchemaContract).sort(),
+    ["apply", "assertAfter", "assertBefore", "find", "name"]
+  );
+  assert.equal(dynamicToolSchemaContract.name, "dynamic-tool-schema-contract");
 });
 
 test("patchLinuxOpenTargetsSource reports contract name on upstream drift", () => {
@@ -294,4 +315,86 @@ test("hasUnguardedOwlFeatureBindingSource detects mixed patched and unpatched he
   ].join(";");
 
   assert.equal(hasUnguardedOwlFeatureBindingSource(mixedSource), true);
+});
+
+test("patchDynamicToolStartResponseSource normalizes desktop thread-start dynamic tools", () => {
+  const source = [
+    "class Manager{constructor(){this.pendingDynamicToolsForThreadStartRequests=new Map}send(t){this.pendingDynamicToolsForThreadStartRequests.set(`req`,{originId:1,timeout:null,resolve:e=>{globalThis.result=e}});this.handleDynamicToolsForThreadStartResponse({id:1},{requestId:`req`,dynamicTools:t})}handleDynamicToolsForThreadStartResponse(e,t){let n=this.pendingDynamicToolsForThreadStartRequests.get(t.requestId);if(!n||n.originId!==e.id)return;this.pendingDynamicToolsForThreadStartRequests.delete(t.requestId),clearTimeout(n.timeout),n.resolve(t.dynamicTools)}}",
+    "let manager=new Manager;",
+    "manager.send([{type:`namespace`,name:`codex_app`,tools:[{type:`function`,name:`good`,inputSchema:{type:`object`}},{type:`function`,name:`snake`,input_schema:{type:`object`}},{type:`function`,name:`params`,parameters:{type:`object`}},{type:`function`,name:`bad`},{type:`other`,name:`untouched`}]}]);"
+  ].join("");
+
+  const patched = patchDynamicToolStartResponseSource(source);
+  const context = {
+    clearTimeout,
+    globalThis: {}
+  };
+
+  vm.runInNewContext(patched, context);
+
+  const tools = context.globalThis.result[0].tools;
+
+  assert.equal(hasUnguardedDynamicToolStartResponseSource(patched), false);
+  assert.equal(JSON.stringify(tools.map(tool => tool.name)), JSON.stringify(["good", "snake", "params", "untouched"]));
+  assert.equal(tools.filter(tool => tool.type === "function").every(tool => tool.inputSchema?.type === "object"), true);
+});
+
+test("patchDynamicToolStartResponseSource is idempotent", () => {
+  const source = "class Manager{handleDynamicToolsForThreadStartResponse(e,t){let n=this.pendingDynamicToolsForThreadStartRequests.get(t.requestId);if(!n||n.originId!==e.id)return;this.pendingDynamicToolsForThreadStartRequests.delete(t.requestId),clearTimeout(n.timeout),n.resolve(t.dynamicTools)}}";
+  const patched = patchDynamicToolStartResponseSource(source);
+
+  assert.equal(patchDynamicToolStartResponseSource(patched), patched);
+});
+
+test("hasUnguardedDynamicToolStartResponseSource detects unpatched desktop resolver", () => {
+  const source = "class Manager{handleDynamicToolsForThreadStartResponse(e,t){let n=this.pendingDynamicToolsForThreadStartRequests.get(t.requestId);if(!n||n.originId!==e.id)return;this.pendingDynamicToolsForThreadStartRequests.delete(t.requestId),clearTimeout(n.timeout),n.resolve(t.dynamicTools)}}";
+
+  assert.equal(hasUnguardedDynamicToolStartResponseSource(source), true);
+});
+
+test("patchDynamicToolSchemaContractSource normalizes thread-start dynamic tool schemas", async () => {
+  const source = [
+    "var yr=`codex_app`,br=new Set;",
+    "var good={name:`good`,inputSchema:{type:`object`,properties:{},additionalProperties:!1}};",
+    "var snake={name:`snake`,input_schema:{type:`object`,properties:{value:{type:`string`}}}};",
+    "var parameters={name:`parameters`,parameters:{type:`object`,properties:{count:{type:`number`}}}};",
+    "var bad={name:`bad`};",
+    "async function xr(){return[{type:`namespace`,name:yr,description:`Tools provided by the Codex app.`,tools:[good,snake,parameters,bad].map(e=>({type:`function`,...e,...br.has(e.name)?{}:{deferLoading:!0}}))}]}",
+    "globalThis.result=await xr();"
+  ].join("");
+
+  const patched = patchDynamicToolSchemaContractSource(source);
+  const context = {
+    globalThis: {}
+  };
+
+  await vm.runInNewContext(`(async()=>{${patched}})()`, context);
+
+  const tools = context.globalThis.result[0].tools;
+
+  assert.equal(hasUnguardedDynamicToolSchemaContractSource(patched), false);
+  assert.equal(JSON.stringify(tools.map(tool => tool.name)), JSON.stringify(["good", "snake", "parameters"]));
+  assert.equal(tools.every(tool => tool.inputSchema?.type === "object"), true);
+  assert.equal(tools.every(tool => tool.deferLoading === true), true);
+});
+
+test("patchDynamicToolSchemaContractSource is idempotent", () => {
+  const source = [
+    "var yr=`codex_app`,br=new Set;",
+    "var good={name:`good`,inputSchema:{type:`object`,properties:{},additionalProperties:!1}};",
+    "async function xr(){return[{type:`namespace`,name:yr,description:`Tools provided by the Codex app.`,tools:[good].map(e=>({type:`function`,...e,...br.has(e.name)?{}:{deferLoading:!0}}))}]}"
+  ].join("");
+  const patched = patchDynamicToolSchemaContractSource(source);
+
+  assert.equal(patchDynamicToolSchemaContractSource(patched), patched);
+});
+
+test("hasUnguardedDynamicToolSchemaContractSource detects unpatched schema mapper", () => {
+  const source = [
+    "var yr=`codex_app`,br=new Set;",
+    "var good={name:`good`,inputSchema:{type:`object`,properties:{},additionalProperties:!1}};",
+    "async function xr(){return[{type:`namespace`,name:yr,description:`Tools provided by the Codex app.`,tools:[good].map(e=>({type:`function`,...e,...br.has(e.name)?{}:{deferLoading:!0}}))}]}"
+  ].join("");
+
+  assert.equal(hasUnguardedDynamicToolSchemaContractSource(source), true);
 });

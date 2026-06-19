@@ -63,7 +63,8 @@ test("writeAurPackage emits PKGBUILD, .SRCINFO, and install script", async () =>
     /pkgdesc = Unofficial Linux build of Codex from OpenAI's Codex appcast feed\./
   );
   assert.match(srcinfo, /pkgver = 26.313.41514_launcher.1/);
-  assert.match(installScript, /expects an existing 'codex' binary on PATH/);
+  assert.match(installScript, /uses its bundled Codex CLI by default/);
+  assert.match(installScript, /Set CODEX_CLI_PATH before launch only when intentionally testing another CLI/);
   assert.match(installScript, /pre_upgrade\(\)/);
   assert.match(installScript, /pre_remove\(\)/);
   assert.match(

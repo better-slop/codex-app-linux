@@ -157,6 +157,14 @@ function failingContractOrSmokeName(error, message, phase) {
 }
 
 function codePathsForFailure(name, phase) {
+  if (name.includes("dynamic-tool")) {
+    return [
+      "scripts/lib/upstream-patches.mjs",
+      "scripts/smoke-artifacts.mjs",
+      "test/upstream-patches.test.mjs"
+    ];
+  }
+
   if (name.includes("open-target") || name.includes("window")) {
     return ["scripts/lib/upstream-patches.mjs", "test/upstream-patches.test.mjs"];
   }

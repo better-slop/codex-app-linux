@@ -61,6 +61,64 @@ printf '%s\n' "$0" > ${JSON.stringify(markerPath)}
   assert.equal(marker.trim(), binaryPath);
 });
 
+test("launcher wrapper prefers bundled Codex CLI over PATH Codex", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-wrapper-codex-"));
+  const appDir = path.join(root, "opt", "codex-app-linux-beta");
+  const resourcesDir = path.join(appDir, "resources");
+  const binDir = path.join(root, "usr", "bin");
+  const fakePathDir = path.join(root, "fake-path");
+  const launcherPath = path.join(appDir, "codex-app-linux-beta");
+  const binaryPath = path.join(appDir, "codex-app-linux-beta-real");
+  const symlinkPath = path.join(binDir, "codex-app-linux-beta");
+  const bundledCodexPath = path.join(resourcesDir, "codex");
+  const stalePathCodex = path.join(fakePathDir, "codex");
+  const markerPath = path.join(root, "resolved-codex");
+
+  await fs.mkdir(resourcesDir, { recursive: true });
+  await fs.mkdir(binDir, { recursive: true });
+  await fs.mkdir(fakePathDir, { recursive: true });
+  await fs.writeFile(
+    launcherPath,
+    afterPack.wrapperScript("codex-app-linux-beta-real"),
+    { mode: 0o755 }
+  );
+  await fs.writeFile(
+    binaryPath,
+    `#!/bin/sh
+set -eu
+printf '%s\n' "$CODEX_CLI_PATH" > ${JSON.stringify(markerPath)}
+`,
+    { mode: 0o755 }
+  );
+  await fs.writeFile(bundledCodexPath, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  await fs.writeFile(stalePathCodex, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  await fs.symlink(launcherPath, symlinkPath);
+
+  await new Promise((resolve, reject) => {
+    const child = spawn(symlinkPath, [], {
+      env: {
+        ...process.env,
+        PATH: `${fakePathDir}:${process.env.PATH || ""}`,
+        CODEX_CLI_PATH: ""
+      },
+      stdio: "ignore"
+    });
+
+    child.on("error", reject);
+    child.on("exit", code => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(`wrapper exited with ${code}`));
+    });
+  });
+
+  const marker = await fs.readFile(markerPath, "utf8");
+  assert.equal(marker.trim(), bundledCodexPath);
+});
+
 test("afterPack extra resource copy preserves Linux app.asar.unpacked", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-after-pack-"));
   const appOutDir = path.join(root, "linux-unpacked");

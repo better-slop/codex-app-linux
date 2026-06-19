@@ -6,7 +6,11 @@ import { spawn, spawnSync } from "node:child_process";
 import * as asar from "@electron/asar";
 
 import { channelPaths, getChannel, parseArgs, projectRoot } from "./lib/config.mjs";
-import { hasUnguardedOwlFeatureBindingSource } from "./lib/upstream-patches.mjs";
+import {
+  hasUnguardedDynamicToolSchemaContractSource,
+  hasUnguardedDynamicToolStartResponseSource,
+  hasUnguardedOwlFeatureBindingSource
+} from "./lib/upstream-patches.mjs";
 
 const nativeExtensions = new Set([
   "",
@@ -56,6 +60,9 @@ export async function smokeLinuxArtifacts({
       expectStdout: /^v\d+\.\d+\.\d+/
     })
   );
+  await runCheck(summary, "bundled-codex-launcher", () =>
+    assertBundledCodexLauncher(linuxDir, executablePath, resourcesDir)
+  );
   await runCheck(summary, "node_repl", () =>
     smokeNodeRepl(path.join(resourcesDir, "node_repl"))
   );
@@ -64,6 +71,12 @@ export async function smokeLinuxArtifacts({
   );
   await runCheck(summary, "owl-runtime-contract", () =>
     assertOwlRuntimeContract(resourcesDir)
+  );
+  await runCheck(summary, "dynamic-tool-schema-contract", () =>
+    assertDynamicToolSchemaContract(resourcesDir)
+  );
+  await runCheck(summary, "dynamic-tool-start-response-contract", () =>
+    assertDynamicToolStartResponseContract(resourcesDir)
   );
 
   if (packageDir) {
@@ -218,6 +231,41 @@ async function smokeNodeRepl(executablePath) {
   };
 }
 
+async function assertBundledCodexLauncher(linuxDir, executablePath, resourcesDir) {
+  const bundledCodexPath = path.join(resourcesDir, "codex");
+  await accessFile(bundledCodexPath, "bundled Codex CLI");
+
+  const launcherSource = await fs.readFile(executablePath, "utf8");
+  evaluateBundledCodexLauncherSource(launcherSource);
+
+  return {
+    launcher: path.relative(linuxDir, executablePath),
+    bundledCodex: path.relative(linuxDir, bundledCodexPath)
+  };
+}
+
+export function evaluateBundledCodexLauncherSource(source) {
+  const envOverrideIndex = source.indexOf("CODEX_CLI_PATH");
+  const bundledIndex = source.indexOf('bundled_codex="$script_dir/resources/codex"');
+  const pathFallbackIndex = source.indexOf("command -v codex");
+
+  if (!source.startsWith("#!/bin/sh")) {
+    throw new Error("desktop launcher is not the expected shell wrapper");
+  }
+
+  if (envOverrideIndex === -1) {
+    throw new Error("desktop launcher does not honor CODEX_CLI_PATH");
+  }
+
+  if (bundledIndex === -1) {
+    throw new Error("desktop launcher does not prefer bundled resources/codex");
+  }
+
+  if (pathFallbackIndex !== -1 && pathFallbackIndex < bundledIndex) {
+    throw new Error("desktop launcher resolves PATH codex before bundled resources/codex");
+  }
+}
+
 async function smokeDesktopBinary(executablePath, resourcesDir) {
   const result = await runCommand(executablePath, ["--no-sandbox"], {
     capture: true,
@@ -308,6 +356,44 @@ async function assertOwlRuntimeContract(resourcesDir) {
   };
 }
 
+async function assertDynamicToolSchemaContract(resourcesDir) {
+  const appAsarPath = path.join(resourcesDir, "app.asar");
+  const unsafeSources = await findUnguardedDynamicToolSchemaSources(appAsarPath);
+
+  if (unsafeSources.unsafe.length > 0) {
+    throw new Error(
+      `Thread-start dynamic tools must normalize inputSchema before startThread; ${unsafeSources.unsafe.slice(0, 5).join(", ")} still exposes an unguarded dynamic tool mapper and can fail with "Invalid request: missing field inputSchema"`
+    );
+  }
+
+  if (unsafeSources.checked === 0) {
+    throw new Error("Unable to find thread-start dynamic tool schema contract in app.asar");
+  }
+
+  return {
+    checked: unsafeSources.checked
+  };
+}
+
+async function assertDynamicToolStartResponseContract(resourcesDir) {
+  const appAsarPath = path.join(resourcesDir, "app.asar");
+  const unsafeSources = await findUnguardedDynamicToolStartResponseSources(appAsarPath);
+
+  if (unsafeSources.unsafe.length > 0) {
+    throw new Error(
+      `Desktop thread-start dynamic tools must normalize inputSchema before app-server thread/start; ${unsafeSources.unsafe.slice(0, 5).join(", ")} still resolves raw dynamicTools and can fail with "Invalid request: missing field inputSchema"`
+    );
+  }
+
+  if (unsafeSources.checked === 0) {
+    throw new Error("Unable to find desktop dynamic tool start response contract in app.asar");
+  }
+
+  return {
+    checked: unsafeSources.checked
+  };
+}
+
 async function findUnguardedOwlBindingSources(appAsarPath) {
   const files = await asar.listPackage(appAsarPath);
   const unsafe = [];
@@ -331,6 +417,79 @@ async function findUnguardedOwlBindingSources(appAsarPath) {
   }
 
   return unsafe;
+}
+
+async function findUnguardedDynamicToolStartResponseSources(appAsarPath) {
+  const files = await asar.listPackage(appAsarPath);
+  const unsafe = [];
+  let checked = 0;
+
+  for (const file of files) {
+    if (!/\.(?:js|mjs|cjs)$/i.test(file)) {
+      continue;
+    }
+
+    let source;
+
+    try {
+      source = asar.extractFile(appAsarPath, file.replace(/^\//, "")).toString("utf8");
+    } catch {
+      continue;
+    }
+
+    if (
+      !source.includes("handleDynamicToolsForThreadStartResponse") ||
+      !source.includes("pendingDynamicToolsForThreadStartRequests")
+    ) {
+      continue;
+    }
+
+    checked++;
+
+    if (hasUnguardedDynamicToolStartResponseSource(source)) {
+      unsafe.push(file.replace(/^\//, ""));
+    }
+  }
+
+  return {
+    checked,
+    unsafe
+  };
+}
+
+async function findUnguardedDynamicToolSchemaSources(appAsarPath) {
+  const files = await asar.listPackage(appAsarPath);
+  const unsafe = [];
+  let checked = 0;
+
+  for (const file of files) {
+    if (!/\.(?:js|mjs|cjs)$/i.test(file)) {
+      continue;
+    }
+
+    let source;
+
+    try {
+      source = asar.extractFile(appAsarPath, file.replace(/^\//, "")).toString("utf8");
+    } catch {
+      continue;
+    }
+
+    if (!source.includes("Tools provided by the Codex app.") || !source.includes("deferLoading")) {
+      continue;
+    }
+
+    checked++;
+
+    if (hasUnguardedDynamicToolSchemaContractSource(source)) {
+      unsafe.push(file.replace(/^\//, ""));
+    }
+  }
+
+  return {
+    checked,
+    unsafe
+  };
 }
 
 async function smokeWebShell({ linuxDir, packageDir, port }) {

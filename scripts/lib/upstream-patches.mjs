@@ -24,6 +24,8 @@ const linuxTransparencyPatchRegex =
 const owlFeatureBindingRegex =
   /function ([A-Za-z_$][\w$]*)\(\)\{let ([A-Za-z_$][\w$]*)=process\._linkedBinding;if\(typeof \2!=`function`\)throw Error\(`Owl feature binding is unavailable`\);return ([A-Za-z_$][\w$]*)\.parse\(\2\.call\(process,`electron_common_owl_features`\)\)\}/;
 const owlFeatureFallbackMarker = "__codexLinuxOwlFeatureFallback";
+const dynamicToolSchemaContractMarker = "__codexLinuxDynamicToolSchemaContract";
+const dynamicToolStartResponseMarker = "__codexLinuxNormalizeDynamicToolsForThreadStart";
 
 export class UpstreamPatchContractError extends Error {
   constructor(contractName, message, options = {}) {
@@ -35,7 +37,21 @@ export class UpstreamPatchContractError extends Error {
   }
 }
 
+export const dynamicToolStartResponseContract = {
+  name: "dynamic-tool-start-response",
+  find: findDynamicToolStartResponsePatch,
+  assertBefore: assertDynamicToolStartResponseBefore,
+  apply: patchDynamicToolStartResponse,
+  assertAfter: assertDynamicToolStartResponseAfter
+};
+
 export const upstreamPatchContracts = [
+  // Why: upstream can return runtime-built dynamic tools from the renderer
+  // just before thread creation. App-server rejects any function tool without
+  // inputSchema, so Linux normalizes the final Electron response boundary.
+  // Contract: the main bundle still resolves dynamic-tools-for-thread-start
+  // responses through handleDynamicToolsForThreadStartResponse.
+  dynamicToolStartResponseContract,
   // Why: upstream desktop only registers macOS open-in-editor targets; Linux
   // needs locally installed editors and terminal-backed Neovim. Contract:
   // upstream still exposes an open-target registry, runner, and preferred-target
@@ -77,6 +93,14 @@ export const owlFeatureBindingContract = {
   assertAfter: assertOwlFeatureBindingAfter
 };
 
+export const dynamicToolSchemaContract = {
+  name: "dynamic-tool-schema-contract",
+  find: findDynamicToolSchemaContractPatch,
+  assertBefore: assertDynamicToolSchemaContractBefore,
+  apply: patchDynamicToolSchemaContract,
+  assertAfter: assertDynamicToolSchemaContractAfter
+};
+
 export async function patchUpstreamApp(stageAppDir) {
   const buildDir = path.join(stageAppDir, ".vite", "build");
   const entries = await fs.readdir(buildDir);
@@ -92,23 +116,29 @@ export async function patchUpstreamApp(stageAppDir) {
 
   if (patched === source) {
     await patchOwlFeatureBindingChunks(buildDir, entries);
+    await patchDynamicToolSchemaContractChunks(stageAppDir);
     return;
   }
 
   await fs.writeFile(mainBundlePath, patched);
   await patchOwlFeatureBindingChunks(buildDir, entries);
+  await patchDynamicToolSchemaContractChunks(stageAppDir);
 }
 
 export function patchUpstreamMainSource(source) {
   return applyUpstreamPatchContracts(source, upstreamPatchContracts);
 }
 
+export function patchDynamicToolStartResponseSource(source) {
+  return applyUpstreamPatchContract(source, dynamicToolStartResponseContract);
+}
+
 export function patchLinuxOpenTargetsSource(source) {
-  return applyUpstreamPatchContract(source, upstreamPatchContracts[0]);
+  return applyUpstreamPatchContract(source, upstreamPatchContracts[1]);
 }
 
 export function patchDisableTransparencySource(source) {
-  return applyUpstreamPatchContracts(source, upstreamPatchContracts.slice(1));
+  return applyUpstreamPatchContracts(source, upstreamPatchContracts.slice(2));
 }
 
 export function patchLinuxOwlFeatureBindingSource(source) {
@@ -138,6 +168,10 @@ export function patchLinuxOwlFeatureBindingSource(source) {
   }
 }
 
+export function patchDynamicToolSchemaContractSource(source) {
+  return applyUpstreamPatchContract(source, dynamicToolSchemaContract);
+}
+
 export function hasUnguardedOwlFeatureBindingSource(source) {
   let index = -1;
 
@@ -155,6 +189,18 @@ export function hasUnguardedOwlFeatureBindingSource(source) {
   }
 
   return false;
+}
+
+export function hasUnguardedDynamicToolSchemaContractSource(source) {
+  const patch = findDynamicToolSchemaContractPatch(source);
+
+  return patch.status === "patch";
+}
+
+export function hasUnguardedDynamicToolStartResponseSource(source) {
+  const patch = findDynamicToolStartResponsePatch(source);
+
+  return patch.status === "patch";
 }
 
 export function applyUpstreamPatchContracts(source, contracts) {
@@ -230,6 +276,44 @@ async function patchOwlFeatureBindingChunks(buildDir, entries) {
   }
 }
 
+async function patchDynamicToolSchemaContractChunks(stageAppDir) {
+  const assetsDir = path.join(stageAppDir, "webview", "assets");
+  let entries;
+
+  try {
+    entries = await fs.readdir(assetsDir);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      throw new UpstreamPatchContractError(
+        dynamicToolSchemaContract.name,
+        `missing webview assets directory: ${assetsDir}`,
+        { cause: error }
+      );
+    }
+
+    throw error;
+  }
+
+  for (const entry of entries) {
+    if (!entry.endsWith(".js")) {
+      continue;
+    }
+
+    const bundlePath = path.join(assetsDir, entry);
+    const source = await fs.readFile(bundlePath, "utf8");
+
+    if (!source.includes("Tools provided by the Codex app.") || !source.includes("deferLoading")) {
+      continue;
+    }
+
+    const patched = patchDynamicToolSchemaContractSource(source);
+
+    if (patched !== source) {
+      await fs.writeFile(bundlePath, patched);
+    }
+  }
+}
+
 function findOwlFeatureBindingPatch(source) {
   const match = source.match(owlFeatureBindingRegex);
 
@@ -252,6 +336,300 @@ function findOwlFeatureBindingPatch(source) {
   }
 
   throw new Error("Unable to apply upstream patch; missing Owl feature binding helper");
+}
+
+function findDynamicToolStartResponsePatch(source) {
+  const patches = findDynamicToolStartResponsePatches(source);
+
+  if (patches.length > 0) {
+    return {
+      status: "patch",
+      patches
+    };
+  }
+
+  if (
+    source.includes(dynamicToolStartResponseMarker) &&
+    source.includes("handleDynamicToolsForThreadStartResponse")
+  ) {
+    return { status: "patched" };
+  }
+
+  if (source.includes("handleDynamicToolsForThreadStartResponse")) {
+    throw new Error("Unable to apply upstream patch; missing dynamic tool start response resolver");
+  }
+
+  throw new Error("Unable to apply upstream patch; missing dynamic tool start response resolver");
+}
+
+function findDynamicToolStartResponsePatches(source) {
+  const ast = parseJavaScript(source);
+  const patches = [];
+
+  walkAst(ast, node => {
+    if (
+      node.type !== "MethodDefinition" ||
+      propertyName(node.key) !== "handleDynamicToolsForThreadStartResponse"
+    ) {
+      return;
+    }
+
+    const responseParam = node.value?.params?.[1];
+
+    if (responseParam?.type !== "Identifier") {
+      return;
+    }
+
+    walkAst(node.value.body, child => {
+      if (
+        child.type !== "CallExpression" ||
+        !isMemberPropertyNamed(child.callee, "resolve") ||
+        child.arguments.length !== 1 ||
+        !isMemberExpressionNamed(child.arguments[0], responseParam.name, "dynamicTools")
+      ) {
+        return;
+      }
+
+      patches.push({
+        argumentStart: child.arguments[0].start,
+        argumentEnd: child.arguments[0].end
+      });
+    });
+  });
+
+  if (patches.length > 1) {
+    throw new Error("Unable to apply upstream patch; ambiguous dynamic tool start response resolver");
+  }
+
+  return patches;
+}
+
+function assertDynamicToolStartResponseBefore(source) {
+  const patch = findDynamicToolStartResponsePatch(source);
+
+  if (!patch || patch.status !== "patch") {
+    throw new Error("missing unguarded dynamic tool start response resolver");
+  }
+}
+
+function assertDynamicToolStartResponseAfter(source) {
+  if (!source.includes(dynamicToolStartResponseMarker)) {
+    throw new Error("missing dynamic tool start response normalizer");
+  }
+
+  if (!source.includes("handleDynamicToolsForThreadStartResponse")) {
+    throw new Error("missing dynamic tool start response handler");
+  }
+
+  if (hasUnguardedDynamicToolStartResponseSource(source)) {
+    throw new Error("unguarded dynamic tool start response resolver remains");
+  }
+}
+
+function patchDynamicToolStartResponse(source, patch = findDynamicToolStartResponsePatch(source)) {
+  if (patch?.status === "patched") {
+    return source;
+  }
+
+  const helper = source.includes(dynamicToolStartResponseMarker)
+    ? ""
+    : [
+        `function ${dynamicToolStartResponseMarker}(e){if(!Array.isArray(e))return[];return e.map(e=>{if(e?.type!==\`namespace\`||!Array.isArray(e.tools))return e;let t=e.tools.flatMap(e=>{if(e?.type!==\`function\`)return[e];if(e.inputSchema!=null)return[e];if(e.input_schema!=null)return[{...e,inputSchema:e.input_schema}];if(e.parameters!=null)return[{...e,inputSchema:e.parameters}];return[]});return{...e,tools:t}})}`
+      ].join("");
+  const replacements = patch.patches.map(target => {
+    const argumentSource = source.slice(target.argumentStart, target.argumentEnd);
+
+    return {
+      start: target.argumentStart,
+      end: target.argumentEnd,
+      replacement: `${dynamicToolStartResponseMarker}(${argumentSource})`
+    };
+  });
+
+  replacements.sort((left, right) => right.start - left.start);
+
+  let patched = source;
+  for (const replacement of replacements) {
+    patched = `${patched.slice(0, replacement.start)}${replacement.replacement}${patched.slice(replacement.end)}`;
+  }
+
+  return helper ? `${patched}\n${helper}` : patched;
+}
+
+function findDynamicToolSchemaContractPatch(source) {
+  const patches = findDynamicToolSchemaContractPatches(source);
+
+  if (patches.length > 0) {
+    return {
+      status: "patch",
+      patches
+    };
+  }
+
+  if (
+    source.includes(dynamicToolSchemaContractMarker) &&
+    source.includes("Tools provided by the Codex app.")
+  ) {
+    return { status: "patched" };
+  }
+
+  if (source.includes("Tools provided by the Codex app.") && source.includes("deferLoading")) {
+    throw new Error("Unable to apply upstream patch; missing dynamic tool schema mapper");
+  }
+
+  throw new Error("Unable to apply upstream patch; missing dynamic tool schema mapper");
+}
+
+function findDynamicToolSchemaContractPatches(source) {
+  const ast = parseJavaScript(source);
+  const patches = [];
+
+  walkAst(ast, node => {
+    if (node.type !== "CallExpression" || !isMemberPropertyNamed(node.callee, "map")) {
+      return;
+    }
+
+    const callback = node.arguments[0];
+    const callbackParam = callback?.params?.[0];
+    const body = callback?.body;
+
+    if (
+      callback?.type !== "ArrowFunctionExpression" ||
+      callbackParam?.type !== "Identifier" ||
+      body?.type !== "ObjectExpression" ||
+      !isDynamicToolFunctionObject(body, callbackParam.name)
+    ) {
+      return;
+    }
+
+    const context = source.slice(Math.max(0, node.start - 1500), Math.min(source.length, node.end + 1500));
+
+    if (!context.includes("Tools provided by the Codex app.") || !context.includes("deferLoading")) {
+      return;
+    }
+
+    patches.push({
+      callEnd: node.end,
+      objectStart: body.start,
+      objectEnd: body.end
+    });
+  });
+
+  if (patches.length > 1) {
+    throw new Error("Unable to apply upstream patch; ambiguous dynamic tool schema mapper");
+  }
+
+  return patches;
+}
+
+function isDynamicToolFunctionObject(object, toolVarName) {
+  let hasFunctionType = false;
+  let spreadsTool = false;
+  let hasDeferLoading = false;
+
+  for (const property of object.properties) {
+    if (property.type === "SpreadElement") {
+      if (isIdentifierNamed(property.argument, toolVarName)) {
+        spreadsTool = true;
+      }
+
+      const sourceName = property.argument?.type === "ConditionalExpression"
+        ? objectPropertyNames(property.argument.consequent).concat(objectPropertyNames(property.argument.alternate))
+        : [];
+
+      if (sourceName.includes("deferLoading")) {
+        hasDeferLoading = true;
+      }
+
+      continue;
+    }
+
+    if (property.type !== "Property") {
+      continue;
+    }
+
+    const key = propertyName(property.key);
+
+    if (key === "type" && isStringLiteral(property.value, "function")) {
+      hasFunctionType = true;
+    }
+
+    if (key === "deferLoading") {
+      hasDeferLoading = true;
+    }
+  }
+
+  return hasFunctionType && spreadsTool && hasDeferLoading;
+}
+
+function objectPropertyNames(node) {
+  if (node?.type !== "ObjectExpression") {
+    return [];
+  }
+
+  return node.properties
+    .filter(property => property.type === "Property")
+    .map(property => propertyName(property.key))
+    .filter(Boolean);
+}
+
+function assertDynamicToolSchemaContractBefore(source) {
+  const patch = findDynamicToolSchemaContractPatch(source);
+
+  if (!patch || patch.status !== "patch") {
+    throw new Error("missing unguarded dynamic tool schema mapper");
+  }
+}
+
+function assertDynamicToolSchemaContractAfter(source) {
+  if (!source.includes(dynamicToolSchemaContractMarker)) {
+    throw new Error("missing dynamic tool schema contract helper");
+  }
+
+  if (!source.includes("Tools provided by the Codex app.")) {
+    throw new Error("missing dynamic tool namespace builder");
+  }
+
+  if (hasUnguardedDynamicToolSchemaContractSource(source)) {
+    throw new Error("unguarded dynamic tool schema mapper remains");
+  }
+}
+
+function patchDynamicToolSchemaContract(source, patch = findDynamicToolSchemaContractPatch(source)) {
+  if (patch?.status === "patched") {
+    return source;
+  }
+
+  const helper = source.includes(dynamicToolSchemaContractMarker)
+    ? ""
+    : [
+        `function ${dynamicToolSchemaContractMarker}(e){if(e==null||e.type!==\`function\`)return e;if(e.inputSchema!=null)return e;if(e.input_schema!=null)return{...e,inputSchema:e.input_schema};if(e.parameters!=null)return{...e,inputSchema:e.parameters};return null}`
+      ].join("");
+  const replacements = [];
+
+  for (const target of patch.patches) {
+    const objectSource = source.slice(target.objectStart, target.objectEnd);
+
+    replacements.push({
+      start: target.objectStart,
+      end: target.objectEnd,
+      replacement: `${dynamicToolSchemaContractMarker}(${objectSource})`
+    });
+    replacements.push({
+      start: target.callEnd,
+      end: target.callEnd,
+      replacement: ".filter(Boolean)"
+    });
+  }
+
+  replacements.sort((left, right) => right.start - left.start);
+
+  let patched = source;
+  for (const replacement of replacements) {
+    patched = `${patched.slice(0, replacement.start)}${replacement.replacement}${patched.slice(replacement.end)}`;
+  }
+
+  return helper ? `${patched}\n${helper}` : patched;
 }
 
 function assertOwlFeatureBindingBefore(source) {
@@ -578,6 +956,23 @@ function getObjectProperty(object, name) {
 
     return propertyName(property.key) === name;
   });
+}
+
+function isMemberPropertyNamed(node, name) {
+  return (
+    node?.type === "MemberExpression" &&
+    !node.computed &&
+    propertyName(node.property) === name
+  );
+}
+
+function isMemberExpressionNamed(node, objectName, property) {
+  return (
+    node?.type === "MemberExpression" &&
+    !node.computed &&
+    isIdentifierNamed(node.object, objectName) &&
+    propertyName(node.property) === property
+  );
 }
 
 function propertyName(key) {
