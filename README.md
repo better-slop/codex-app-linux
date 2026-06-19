@@ -8,7 +8,7 @@ Run the Codex desktop app on Linux via npm, aur, and a nix flake.
 
 `codex-app-linux` is a thin launcher:
 
-- expects `codex` CLI to already be installed
+- bundles the matching `codex` CLI runtime
 - downloads the matching Linux desktop binary archive on first run
 - launches the desktop app with `CODEX_CLI_PATH` wired up
 
@@ -57,11 +57,10 @@ Run the Codex desktop app on Linux via npm, aur, and a nix flake.
 ## Requirements
 
 - Linux x64
-- `codex` on `PATH`
 - GitHub access not required for normal app launch
 
 If `CODEX_CLI_PATH` is already set, the launcher uses it.
-Otherwise it falls back to `which codex`.
+Otherwise it uses the bundled `resources/codex`, then falls back to `which codex`.
 
 ## What This Repo Does
 
@@ -104,13 +103,14 @@ AUR:
 Launcher behavior:
 
 - uses existing `CODEX_CLI_PATH` if set
-- otherwise sets `CODEX_CLI_PATH` from `which codex`
+- otherwise sets `CODEX_CLI_PATH` from bundled `resources/codex`
+- finally falls back to `which codex`
 - errors if neither is available
 - extracts `linux-unpacked` into cache on first run
 - npm launches the unpacked binary directly
 - npm also exposes `codex-app-linux web` to serve the bundled UI in a browser
 - browser auth can be disabled explicitly with `--dangerously-disable-auth true`
-- AppImage and `linux-unpacked` release binaries also perform the same `codex` lookup at launch
+- AppImage and `linux-unpacked` release binaries perform the same bundled-first lookup at launch
 - browser mode is npm-only; AUR packages continue to ship desktop launch behavior only
 
 ## GitHub Actions

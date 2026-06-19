@@ -928,7 +928,7 @@ export function createRuntimePackageManifest({
     version: packageVersion,
     private: false,
     type: "module",
-    description: `${channel.displayName} launcher for the Codex Linux desktop app. Requires an existing codex CLI on PATH.`,
+    description: `${channel.displayName} launcher for the Codex Linux desktop app with bundled Codex CLI runtime.`,
     license: "UNLICENSED",
     os: ["linux"],
     cpu: ["x64"],
@@ -992,11 +992,12 @@ Thin launcher for the Codex Linux desktop app.
 
 ## Behavior
 
-1. uses existing \`CODEX_CLI_PATH\` if set
-2. otherwise resolves \`which codex\`
-3. downloads the Linux unpacked binary archive from GitHub Releases into cache on first run
-4. extracts \`linux-unpacked\`
-5. launches the packaged executable with \`CODEX_CLI_PATH\` exported
+1. downloads the Linux unpacked binary archive from GitHub Releases into cache on first run
+2. extracts \`linux-unpacked\`
+3. uses existing \`CODEX_CLI_PATH\` if set
+4. otherwise uses the bundled \`resources/codex\` from the downloaded desktop archive
+5. otherwise falls back to \`which codex\`
+6. launches the packaged executable with \`CODEX_CLI_PATH\` exported
 
 ## Browser Mode
 

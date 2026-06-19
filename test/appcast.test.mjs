@@ -36,10 +36,10 @@ test("npmVersionFor applies launcher revision suffixes", () => {
     buildNumber: "1041"
   };
 
-  assert.equal(npmVersionFor("prod", upstream), "26.313.41514-launcher.31");
+  assert.equal(npmVersionFor("prod", upstream), "26.313.41514-launcher.33");
   assert.equal(
     npmVersionFor("beta", upstream),
-    "26.313.41514-beta.1041.launcher.31"
+    "26.313.41514-beta.1041.launcher.33"
   );
   assert.equal(npmVersionFor("prod", upstream, 0), "26.313.41514");
   assert.equal(npmVersionFor("beta", upstream, 0), "26.313.41514-beta.1041");

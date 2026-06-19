@@ -201,8 +201,8 @@ pkgname = ${pkgname}
 function renderInstallScript({ appDirName, executableName, pkgname }) {
   return `post_install() {
   cat <<'EOF'
-${pkgname} expects an existing 'codex' binary on PATH.
-If Codex CLI is installed somewhere else, set CODEX_CLI_PATH before launch.
+${pkgname} uses its bundled Codex CLI by default.
+Set CODEX_CLI_PATH before launch only when intentionally testing another CLI.
 EOF
 }
 
