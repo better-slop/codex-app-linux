@@ -235,7 +235,7 @@ export async function ensureExtractedAssets({
   };
 }
 
-async function findAppHostRpcModulePath(assetsDir) {
+export async function findAppHostRpcModulePath(assetsDir) {
   const entries = await fsp.readdir(assetsDir).catch(() => []);
   for (const entry of entries) {
     if (!/^rpc-.*\.js$/.test(entry)) {
@@ -247,6 +247,22 @@ async function findAppHostRpcModulePath(assetsDir) {
       return filePath;
     }
   }
+
+  for (const entry of entries) {
+    if (!entry.endsWith(".js")) {
+      continue;
+    }
+    const filePath = path.join(assetsDir, entry);
+    const source = await fsp.readFile(filePath, "utf8").catch(() => "");
+    if (
+      source.includes("connect-app-host") &&
+      source.includes("appUpdates") &&
+      source.includes("getRemoteMain")
+    ) {
+      return filePath;
+    }
+  }
+
   return null;
 }
 

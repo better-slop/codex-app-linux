@@ -23,15 +23,19 @@ import {
   dynamicToolThreadStartRequestContract
 } from "../scripts/lib/upstream-patches.mjs";
 
+const openTargetResolverSource =
+  "function W(e){let t=which.default.sync(e,{nothrow:!0});return typeof t==`string`&&fs.existsSync(t)?t:null}";
+const withOpenTargetResolver = parts => [openTargetResolverSource, ...parts].join(";");
+
 test("patchLinuxOpenTargetsSource adds Linux editor targets and exposes app paths", () => {
-  const source = [
+  const source = withOpenTargetResolver([
     "prefix",
     "var wd=[nd,id,ed,ou,Ll,Wu,vd,sd,Fl,vu,qu,uu,zl,hu,iu,ld,bu,mu,od,pd,Eu,Du,Ou,ku,Au,ju,Mu,Nu,Xu],Td=t.kr(`open-in-targets`);function Ed(e){return wd.flatMap(t=>{let n=t.platforms[e];return n?[{id:t.id,...n}]:[]})}",
     "async function Fd(e,t,n,r,i,a,o){let s={args:()=>[],env:()=>({})},c=`open`;await ol(c,s.args(t,r,i,a,o),{env:s.env?.()})}",
     "middle",
     "targets:[...o.map(({id:e,label:t,icon:n,kind:r,hidden:i})=>({id:e,target:e,label:t,icon:n,kind:r,hidden:i,available:s.has(e),default:c===e||void 0})),...p]",
     "suffix"
-  ].join(";");
+  ]);
 
   const patched = patchLinuxOpenTargetsSource(source);
 
@@ -56,11 +60,11 @@ test("patchLinuxOpenTargetsSource adds Linux editor targets and exposes app path
 });
 
 test("patchLinuxOpenTargetsSource is idempotent for target definitions", () => {
-  const source = [
+  const source = withOpenTargetResolver([
     "var wd=[nd,id,ed,ou,Ll,Wu,vd,sd,Fl,vu,qu,uu,zl,hu,iu,ld,bu,mu,od,pd,Eu,Du,Ou,ku,Au,ju,Mu,Nu,Xu],Td=t.kr(`open-in-targets`);function Ed(e){return wd.flatMap(t=>{let n=t.platforms[e];return n?[{id:t.id,...n}]:[]})}",
     "async function Fd(e,t,n,r,i,a,o){let s={args:()=>[],env:()=>({})},c=`open`;await ol(c,s.args(t,r,i,a,o),{env:s.env?.()})}",
     "targets:[...o.map(({id:e,label:t,icon:n,kind:r,hidden:i})=>({id:e,target:e,label:t,icon:n,kind:r,hidden:i,available:s.has(e),default:c===e||void 0})),...p]"
-  ].join(";");
+  ]);
 
   const patched = patchLinuxOpenTargetsSource(source);
   const repatched = patchLinuxOpenTargetsSource(patched);
@@ -69,11 +73,11 @@ test("patchLinuxOpenTargetsSource is idempotent for target definitions", () => {
 });
 
 test("patchLinuxOpenTargetsSource accepts alternate minified logger names", () => {
-  const source = [
+  const source = withOpenTargetResolver([
     "var Cd=[td,rd,$u,au,Il,Uu,_d,od,Pl,_u,Ku,lu,Rl,mu,ru,cd,yu,pu,ad,fd,Tu,Eu,Du,Ou,ku,Au,ju,Mu,Yu],wd=t.Or(`open-in-targets`);function Td(e){return Cd.flatMap(t=>{let n=t.platforms[e];return n?[{id:t.id,...n}]:[]})}",
     "async function Pd(e,t,n,r,i,a,o){let s={args:()=>[],env:()=>({})},c=`open`;await ol(c,s.args(t,r,i,a,o),{env:s.env?.()})}",
     "targets:[...o.map(({id:e,label:t,icon:n,kind:r,hidden:i})=>({id:e,target:e,label:t,icon:n,kind:r,hidden:i,available:s.has(e),default:c===e||void 0})),...p]"
-  ].join(";");
+  ]);
 
   const patched = patchLinuxOpenTargetsSource(source);
 
@@ -84,11 +88,11 @@ test("patchLinuxOpenTargetsSource accepts alternate minified logger names", () =
 });
 
 test("patchLinuxOpenTargetsSource accepts upstream electron 42 registry shape", () => {
-  const source = [
+  const source = withOpenTargetResolver([
     "var Wk=[Tk,Dk,Ck,OO,aO,MO,pk,Vk,Ak,rO,VO,gk,NO,sO,RO,EO,Mk,UO,LO,kk,Ik,YO,XO,ZO,QO,$O,ek,tk,nk,yk],Gk=n.Rr(`open-in-targets`);function Kk(e){return Wk.flatMap(t=>{let n=t.platforms[e];return n?[{id:t.id,...n}]:[]})}",
     "async function tA(e,t,n,r,i,a,o){let s={args:()=>[],env:()=>({})},c=`open`;await vo(c,s.args(t,r,i,a,o),{env:s.env?.()})}",
     "targets:[...s.map(({id:e,label:t,icon:n,kind:r,hidden:i})=>({id:e,target:e,label:t,icon:n,kind:r,hidden:i,available:c.has(e),default:l===e||void 0})),...g]"
-  ].join(";");
+  ]);
 
   const patched = patchLinuxOpenTargetsSource(source);
 
@@ -103,11 +107,11 @@ test("patchLinuxOpenTargetsSource accepts upstream electron 42 registry shape", 
 });
 
 test("patchLinuxOpenTargetsSource accepts upstream dispatcher runner shape", () => {
-  const source = [
+  const source = withOpenTargetResolver([
     "var kN=[cN,uN,oN,lM],AN=t.qr(`open-in-targets`);function jN(e){return kN.flatMap(t=>{let n=t.platforms[e];return n?[{id:t.id,...n}]:[]})}",
     "async function BN(e,t,{appPath:n,detectedCommand:r,hostConfig:i,location:a,remotePath:o,remoteWorkspaceRoot:s,targets:c=MN}={}){if(o!=null&&i?.kind===`remote-control`)throw Error(`Remote control does not support open in ${e} yet.`);let l=c.find(t=>t.id===e);if(!l)throw Error(`Unknown open target \"${e}\"`);let u=r??await l.detect(IN);if(!u)throw Error(`Open target \"${e}\" is not available`);if(l.open){await l.open({command:u,path:t,appPath:n,location:a,hostConfig:i,remoteWorkspaceRoot:s,remotePath:o});return}await no(u,l.args(t,a,i,s,o),{env:l.env?.()})}",
     "targets:[...s.map(({id:e,label:t,icon:n,kind:r,hidden:i})=>({id:e,target:e,label:t,icon:n,kind:r,hidden:i,available:c.has(e),default:l===e||void 0})),...g]"
-  ].join(";");
+  ]);
 
   const patched = patchLinuxOpenTargetsSource(source);
 
@@ -118,6 +122,29 @@ test("patchLinuxOpenTargetsSource accepts upstream dispatcher runner shape", () 
   assert.match(
     patched,
     /await no\(r\.command,r\.args\(__codexLinuxOpenTargetNvimCommand\(e,t,n\)\)\)/
+  );
+});
+
+test("patchLinuxOpenTargetsSource accepts bare open-target logger and discovered resolver", () => {
+  const source = [
+    "function os(e){let t=rs.default.sync(e,{nothrow:!0});return typeof t==`string`&&u.existsSync(t)?t:null}",
+    "var GN=[wN,EN,SN,TM,nM,kM,fN,BN,kN,eM,RM,hN,AM,iM,FM,CM,jN,BM,PM,ON,FN,KM,qM,JM,YM,XM,ZM,QM,$M,vN];t.ri(`open-in-targets`);function KN(e){return GN.flatMap(t=>{let n=t.platforms[e];return n?[{id:t.id,...n}]:[]})}",
+    "async function XN(e,t,{appPath:n,detectedCommand:r,hostConfig:i,location:a,remotePath:o,remoteWorkspaceRoot:s,targets:c=qN}={}){if(o!=null&&i?.kind===`remote-control`)throw Error(`Remote control does not support open in ${e} yet.`);let l=c.find(t=>t.id===e);if(!l)throw Error(`Unknown open target \"${e}\"`);let u=r??await l.detect(JN);if(!u)throw Error(`Open target \"${e}\" is not available`);if(l.open){await l.open({command:u,path:t,appPath:n,location:a,hostConfig:i,remoteWorkspaceRoot:s,remotePath:o});return}await us(u,l.args(t,a,i,s,o),{env:l.env?.()})}",
+    "targets:[...l.map(({id:e,label:t,icon:n,kind:r,hidden:i})=>({id:e,target:e,label:t,icon:n,kind:r,hidden:i,available:m.has(e),default:h===e||void 0})),...y]"
+  ].join(";");
+
+  const patched = patchLinuxOpenTargetsSource(source);
+
+  assert.match(
+    patched,
+    /var GN=\[__codexLinuxVSCode,__codexLinuxVSCodeInsiders,__codexLinuxCursor,__codexLinuxZed,__codexLinuxNvim,wN,EN/
+  );
+  assert.match(patched, /detect:\(\)=>os\(`code`\)/);
+  assert.match(patched, /__codexLinuxShellQuote=/);
+  assert.doesNotMatch(patched, /t\.En/);
+  assert.match(
+    patched,
+    /appPath:process\.platform===`linux`&&r===`editor`&&m\.has\(e\)\?Ld\(\)\.get\(e\)\?\?null:null/
   );
 });
 
@@ -188,11 +215,11 @@ test("patchLinuxOpenTargetsSource reports contract name on upstream drift", () =
 });
 
 test("patchLinuxOpenTargetsSource tolerates targets without platform maps", () => {
-  const source = [
+  const source = withOpenTargetResolver([
     "var wd=[nd,id],Td=t.kr(`open-in-targets`);function Ed(e){return wd.flatMap(t=>{let n=t.platforms[e];return n?[{id:t.id,...n}]:[]})}",
     "async function Fd(e,t,n,r,i,a,o){let s={args:()=>[],env:()=>({})},c=`open`;await ol(c,s.args(t,r,i,a,o),{env:s.env?.()})}",
     "targets:[...o.map(({id:e,label:t,icon:n,kind:r,hidden:i})=>({id:e,target:e,label:t,icon:n,kind:r,hidden:i,available:s.has(e),default:c===e||void 0})),...p]"
-  ].join(";");
+  ]);
 
   const patched = patchLinuxOpenTargetsSource(source);
 
@@ -200,11 +227,11 @@ test("patchLinuxOpenTargetsSource tolerates targets without platform maps", () =
 });
 
 test("patchLinuxOpenTargetsSource preserves native target spread variable", () => {
-  const source = [
+  const source = withOpenTargetResolver([
     "var uD=[HE,WE],dD=t.ti(`open-in-targets`);function fD(e){return uD.flatMap(t=>{let n=t.platforms[e];return n?[{id:t.id,...n}]:[]})}",
     "async function xD(e,t,n,r,i,a,o){let s={args:()=>[],env:()=>({})},c=`open`;await zi(c,s.args(t,r,i,a,o),{env:s.env?.()})}",
     "targets:[...o.map(({id:e,label:t,icon:n,kind:r,hidden:i})=>({id:e,target:e,label:t,icon:n,kind:r,hidden:i,available:s.has(e),default:c===e||void 0})),...h]"
-  ].join(";");
+  ]);
 
   const patched = patchLinuxOpenTargetsSource(source);
 
@@ -297,6 +324,30 @@ test("patchLinuxOwlFeatureBindingSource falls back when stock Linux Electron lac
   vm.runInNewContext(patched, context);
 
   assert.equal(context.globalThis.result, false);
+  assert.match(patched, /__codexLinuxOwlFeatureFallback/);
+});
+
+test("patchLinuxOwlFeatureBindingSource accepts nullable Owl helper shape", () => {
+  const source = [
+    "let Ve=`electron_common_owl_features`,Ge={parse:e=>e};",
+    "function st(e){return e instanceof Error?e.message.includes(Ve)&&e.message.includes(`No such binding was linked:`):!1}",
+    "function Ze(e){let t=Qe();return t==null?!1:t.isOwlFeatureEnabled(e)}",
+    "function Qe(){let e=process._linkedBinding;if(typeof e!=`function`)return null;let t;try{t=e.call(process,Ve)}catch(e){if(st(e))return null;throw e}return Ge.parse(t)}",
+    "globalThis.result=Ze(`WorkspaceRootDrop`)"
+  ].join(";");
+
+  const patched = patchLinuxOwlFeatureBindingSource(source);
+  const context = {
+    process: {
+      platform: "linux"
+    },
+    globalThis: {}
+  };
+
+  vm.runInNewContext(patched, context);
+
+  assert.equal(context.globalThis.result, false);
+  assert.equal(hasUnguardedOwlFeatureBindingSource(patched), false);
   assert.match(patched, /__codexLinuxOwlFeatureFallback/);
 });
 

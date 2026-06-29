@@ -2,18 +2,19 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { parse } from "acorn";
 
-const linuxOpenTargetDefinitions = openCommandName => [
+const linuxOpenTargetDefinitions = ({ openCommandName, executableResolverName }) => [
   "var __codexLinuxOpenTargetGotoArgs=(e,t)=>t?[`--goto`,`${e}:${t.line}:${t.column}`]:[e]",
   "__codexLinuxOpenTargetColonArgs=(e,t)=>t?[`${e}:${t.line}:${t.column}`]:[e]",
-  "__codexLinuxOpenTargetTerminal=()=>{let e=process.env.TERMINAL?.trim();if(e&&W(e))return{command:W(e),args:e=>[`-e`,process.env.SHELL?.trim()||`/bin/sh`,`-lc`,e]};for(let e of [[`ghostty`,e=>[`-e`,process.env.SHELL?.trim()||`/bin/sh`,`-lc`,e]],[`kitty`,e=>[`-e`,process.env.SHELL?.trim()||`/bin/sh`,`-lc`,e]],[`alacritty`,e=>[`-e`,process.env.SHELL?.trim()||`/bin/sh`,`-lc`,e]],[`wezterm`,e=>[`start`,`--`,process.env.SHELL?.trim()||`/bin/sh`,`-lc`,e]],[`gnome-terminal`,e=>[`--`,process.env.SHELL?.trim()||`/bin/sh`,`-lc`,e]],[`konsole`,e=>[`-e`,process.env.SHELL?.trim()||`/bin/sh`,`-lc`,e]],[`xterm`,e=>[`-e`,process.env.SHELL?.trim()||`/bin/sh`,`-lc`,e]]]){let t=W(e[0]);if(t)return{command:t,args:e[1]}}return null}",
+  `__codexLinuxOpenTargetTerminal=()=>{let e=process.env.TERMINAL?.trim();if(e&&${executableResolverName}(e))return{command:${executableResolverName}(e),args:e=>[\`-e\`,process.env.SHELL?.trim()||\`/bin/sh\`,\`-lc\`,e]};for(let e of [[\`ghostty\`,e=>[\`-e\`,process.env.SHELL?.trim()||\`/bin/sh\`,\`-lc\`,e]],[\`kitty\`,e=>[\`-e\`,process.env.SHELL?.trim()||\`/bin/sh\`,\`-lc\`,e]],[\`alacritty\`,e=>[\`-e\`,process.env.SHELL?.trim()||\`/bin/sh\`,\`-lc\`,e]],[\`wezterm\`,e=>[\`start\`,\`--\`,process.env.SHELL?.trim()||\`/bin/sh\`,\`-lc\`,e]],[\`gnome-terminal\`,e=>[\`--\`,process.env.SHELL?.trim()||\`/bin/sh\`,\`-lc\`,e]],[\`konsole\`,e=>[\`-e\`,process.env.SHELL?.trim()||\`/bin/sh\`,\`-lc\`,e]],[\`xterm\`,e=>[\`-e\`,process.env.SHELL?.trim()||\`/bin/sh\`,\`-lc\`,e]]]){let t=${executableResolverName}(e[0]);if(t)return{command:t,args:e[1]}}return null}`,
   "__codexLinuxOpenTargetNvimArgs=(e,t)=>t?[`+call cursor(${t.line},${t.column})`,e]:[e]",
-  "__codexLinuxOpenTargetNvimCommand=(e,n,r)=>`${t.En(e)} ${t.Tn(__codexLinuxOpenTargetNvimArgs(n,r))}`",
+  "__codexLinuxShellQuote=e=>{e=String(e);return e.length===0?`''`:/^[A-Za-z0-9_/:=.-]+$/.test(e)?e:`'${e.replaceAll(`'`,`'\\\\''`)}'`}",
+  "__codexLinuxOpenTargetNvimCommand=(e,n,r)=>[e,...__codexLinuxOpenTargetNvimArgs(n,r)].map(__codexLinuxShellQuote).join(` `)",
   `__codexLinuxOpenTargetRunNvim=async({command:e,path:t,location:n})=>{let r=__codexLinuxOpenTargetTerminal();if(!r)throw Error(\`No terminal emulator found for Neovim\`);await ${openCommandName}(r.command,r.args(__codexLinuxOpenTargetNvimCommand(e,t,n)))}`,
-  "__codexLinuxVSCode={id:`vscode`,platforms:{linux:{label:`VS Code`,icon:`apps/vscode.png`,kind:`editor`,detect:()=>W(`code`),args:__codexLinuxOpenTargetGotoArgs}}}",
-  "__codexLinuxVSCodeInsiders={id:`vscodeInsiders`,platforms:{linux:{label:`VS Code Insiders`,icon:`apps/vscode-insiders.png`,kind:`editor`,detect:()=>W(`code-insiders`),args:__codexLinuxOpenTargetGotoArgs}}}",
-  "__codexLinuxCursor={id:`cursor`,platforms:{linux:{label:`Cursor`,icon:`apps/cursor.png`,kind:`editor`,detect:()=>W(`cursor`),args:__codexLinuxOpenTargetGotoArgs}}}",
-  "__codexLinuxZed={id:`zed`,platforms:{linux:{label:`Zed`,icon:`apps/zed.png`,kind:`editor`,detect:()=>W(`zed`),args:__codexLinuxOpenTargetColonArgs}}}",
-  "__codexLinuxNvim={id:`nvim`,platforms:{linux:{label:`Neovim`,icon:`apps/terminal.png`,kind:`editor`,detect:()=>W(`nvim`),args:__codexLinuxOpenTargetNvimArgs,open:__codexLinuxOpenTargetRunNvim}}}"
+  `__codexLinuxVSCode={id:\`vscode\`,platforms:{linux:{label:\`VS Code\`,icon:\`apps/vscode.png\`,kind:\`editor\`,detect:()=>${executableResolverName}(\`code\`),args:__codexLinuxOpenTargetGotoArgs}}}`,
+  `__codexLinuxVSCodeInsiders={id:\`vscodeInsiders\`,platforms:{linux:{label:\`VS Code Insiders\`,icon:\`apps/vscode-insiders.png\`,kind:\`editor\`,detect:()=>${executableResolverName}(\`code-insiders\`),args:__codexLinuxOpenTargetGotoArgs}}}`,
+  `__codexLinuxCursor={id:\`cursor\`,platforms:{linux:{label:\`Cursor\`,icon:\`apps/cursor.png\`,kind:\`editor\`,detect:()=>${executableResolverName}(\`cursor\`),args:__codexLinuxOpenTargetGotoArgs}}}`,
+  `__codexLinuxZed={id:\`zed\`,platforms:{linux:{label:\`Zed\`,icon:\`apps/zed.png\`,kind:\`editor\`,detect:()=>${executableResolverName}(\`zed\`),args:__codexLinuxOpenTargetColonArgs}}}`,
+  `__codexLinuxNvim={id:\`nvim\`,platforms:{linux:{label:\`Neovim\`,icon:\`apps/terminal.png\`,kind:\`editor\`,detect:()=>${executableResolverName}(\`nvim\`),args:__codexLinuxOpenTargetNvimArgs,open:__codexLinuxOpenTargetRunNvim}}}`
 ].join(",");
 const openTargetMapRegex =
   /targets:\[\.\.\.([A-Za-z_$][\w$]*)\.map\(\(\{id:([A-Za-z_$][\w$]*),label:([A-Za-z_$][\w$]*),icon:([A-Za-z_$][\w$]*),kind:([A-Za-z_$][\w$]*),hidden:([A-Za-z_$][\w$]*)\}\)=>\(\{id:\2,target:\2,label:\3,icon:\4,kind:\5,hidden:\6,available:([A-Za-z_$][\w$]*)\.has\(\2\),default:([A-Za-z_$][\w$]*)===\2\|\|void 0\}\)\),\.\.\.([A-Za-z_$][\w$]*)\]/;
@@ -23,6 +24,8 @@ const linuxTransparencyPatchRegex =
   /function ([A-Za-z_$][\w$]*)\(\{alwaysOnTop:([A-Za-z_$][\w$]*),hasShadow:([A-Za-z_$][\w$]*)=!0,platform:([A-Za-z_$][\w$]*),resizable:([A-Za-z_$][\w$]*),thickFrame:([A-Za-z_$][\w$]*),transparent:([A-Za-z_$][\w$]*)=!0\}\)\{return\{frame:!1,transparent:\7,hasShadow:\3,/;
 const owlFeatureBindingRegex =
   /function ([A-Za-z_$][\w$]*)\(\)\{let ([A-Za-z_$][\w$]*)=process\._linkedBinding;if\(typeof \2!=`function`\)throw Error\(`Owl feature binding is unavailable`\);return ([A-Za-z_$][\w$]*)\.parse\(\2\.call\(process,`electron_common_owl_features`\)\)\}/;
+const owlNullableFeatureBindingRegex =
+  /function ([A-Za-z_$][\w$]*)\(\)\{let ([A-Za-z_$][\w$]*)=process\._linkedBinding;if\(typeof \2!=`function`\)return null;let ([A-Za-z_$][\w$]*);try\{\3=\2\.call\(process,([A-Za-z_$][\w$]*)\)\}catch\(([A-Za-z_$][\w$]*)\)\{if\(([A-Za-z_$][\w$]*)\(\5\)\)return null;throw \5\}return ([A-Za-z_$][\w$]*)\.parse\(\3\)\}/;
 const owlFeatureFallbackMarker = "__codexLinuxOwlFeatureFallback";
 const dynamicToolSchemaContractMarker = "__codexLinuxDynamicToolSchemaContract";
 const dynamicToolStartResponseMarker = "__codexLinuxNormalizeDynamicToolsForThreadStart";
@@ -218,6 +221,10 @@ export function hasUnguardedOwlFeatureBindingSource(source) {
       functionEnd === -1 ? Math.min(source.length, index + 1000) : functionEnd
     );
 
+    if (!bindingScope.includes("process._linkedBinding")) {
+      continue;
+    }
+
     if (!bindingScope.includes(owlFeatureFallbackMarker)) {
       return true;
     }
@@ -291,7 +298,7 @@ function applyLinuxOpenTargetsSource(source) {
     patched = replaceOnce(
       patched,
       openTargets.anchor,
-      `${linuxOpenTargetDefinitions(openTargets.openCommandName)};${openTargets.anchor.replace("[", "[__codexLinuxVSCode,__codexLinuxVSCodeInsiders,__codexLinuxCursor,__codexLinuxZed,__codexLinuxNvim,")}`
+      `${linuxOpenTargetDefinitions(openTargets)};${openTargets.anchor.replace("[", "[__codexLinuxVSCode,__codexLinuxVSCodeInsiders,__codexLinuxCursor,__codexLinuxZed,__codexLinuxNvim,")}`
     );
   }
 
@@ -405,10 +412,28 @@ function findOwlFeatureBindingPatch(source) {
   if (match) {
     return {
       status: "patch",
+      patchKind: "throwing",
       anchor: match[0],
       functionName: match[1],
       bindingVar: match[2],
       parserVar: match[3]
+    };
+  }
+
+  const nullableMatch = source.match(owlNullableFeatureBindingRegex);
+
+  if (nullableMatch) {
+    return {
+      status: "patch",
+      patchKind: "nullable",
+      anchor: nullableMatch[0],
+      functionName: nullableMatch[1],
+      bindingVar: nullableMatch[2],
+      resultVar: nullableMatch[3],
+      featureTargetVar: nullableMatch[4],
+      errorVar: nullableMatch[5],
+      safeErrorFunctionName: nullableMatch[6],
+      parserVar: nullableMatch[7]
     };
   }
 
@@ -1004,6 +1029,15 @@ function patchOwlFeatureBinding(source, patch = findOwlFeatureBindingPatch(sourc
   const fallback = source.includes(owlFeatureFallbackMarker)
     ? ""
     : `function ${owlFeatureFallbackMarker}(){return{isOwlFeatureEnabled:()=>!1}}`;
+  if (patch.patchKind === "nullable") {
+    const replacement = [
+      `function ${patch.functionName}(){let ${patch.bindingVar}=process._linkedBinding;if(typeof ${patch.bindingVar}!=\`function\`){if(process.platform===\`linux\`)return ${owlFeatureFallbackMarker}();return null}let ${patch.resultVar};try{${patch.resultVar}=${patch.bindingVar}.call(process,${patch.featureTargetVar})}catch(${patch.errorVar}){if(process.platform===\`linux\`&&(${patch.safeErrorFunctionName}(${patch.errorVar})||/electron_common_owl_features|No such binding|Owl feature binding is unavailable/.test(String(${patch.errorVar}&&${patch.errorVar}.message||${patch.errorVar}))))return ${owlFeatureFallbackMarker}();if(${patch.safeErrorFunctionName}(${patch.errorVar}))return null;throw ${patch.errorVar}}try{return ${patch.parserVar}.parse(${patch.resultVar})}catch(${patch.errorVar}){if(process.platform===\`linux\`&&/electron_common_owl_features|No such binding|Owl feature binding is unavailable/.test(String(${patch.errorVar}&&${patch.errorVar}.message||${patch.errorVar})))return ${owlFeatureFallbackMarker}();throw ${patch.errorVar}}}`,
+      fallback
+    ].join("");
+
+    return replaceOnce(source, patch.anchor, replacement);
+  }
+
   const replacement = [
     `function ${patch.functionName}(){let ${patch.bindingVar}=process._linkedBinding;if(typeof ${patch.bindingVar}!=\`function\`){if(process.platform===\`linux\`)return ${owlFeatureFallbackMarker}();throw Error(\`Owl feature binding is unavailable\`)}try{return ${patch.parserVar}.parse(${patch.bindingVar}.call(process,\`electron_common_owl_features\`))}catch(e){if(process.platform===\`linux\`&&/electron_common_owl_features|No such binding|Owl feature binding is unavailable/.test(String(e&&e.message||e)))return ${owlFeatureFallbackMarker}();throw e}}`,
     fallback
@@ -1470,7 +1504,7 @@ function patchOpenTargetPlatformLookup(source) {
 
 function findOpenTargetRegistry(source) {
   const match = source.match(
-    /var ([A-Za-z_$][\w$]*)=\[[^\]]+\],[A-Za-z_$][\w$]*=[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\(`open-in-targets`\);\s*function [A-Za-z_$][\w$]*\(e\)\{return \1\.flatMap/
+    /var ([A-Za-z_$][\w$]*)=\[[^\]]+\](?:,[A-Za-z_$][\w$]*=[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\(`open-in-targets`\)|\s*;[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\(`open-in-targets`\));\s*function [A-Za-z_$][\w$]*\(e\)\{return \1\.flatMap/
   );
 
   if (!match) {
@@ -1481,8 +1515,29 @@ function findOpenTargetRegistry(source) {
 
   return {
     anchor,
-    openCommandName: findOpenCommandName(source)
+    openCommandName: findOpenCommandName(source),
+    executableResolverName: findOpenExecutableResolverName(source)
   };
+}
+
+function findOpenExecutableResolverName(source) {
+  const resolverMatch = source.match(
+    /function ([A-Za-z_$][\w$]*)\(e\)\{let [A-Za-z_$][\w$]*=[A-Za-z_$][\w$]*\.default\.sync\(e,\{nothrow:!0\}\);return typeof [A-Za-z_$][\w$]*==`string`&&/
+  );
+
+  if (resolverMatch) {
+    return resolverMatch[1];
+  }
+
+  const targetDetectMatch = source.match(
+    /([A-Za-z_$][\w$]*)\(`(?:code|code-insiders|cursor|zed|nvim)`\)/
+  );
+
+  if (targetDetectMatch) {
+    return targetDetectMatch[1];
+  }
+
+  throw new Error("Unable to apply upstream patch; missing open target executable resolver");
 }
 
 function findOpenCommandName(source) {

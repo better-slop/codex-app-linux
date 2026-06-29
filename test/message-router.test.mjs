@@ -87,6 +87,18 @@ test("MessageRouter ignores electron-only startup pings in web mode", async () =
     }
   });
 
+  for (const type of [
+    "remote-hosted-pip-visibility-changed",
+    "remote-hosted-pip-active-thread-changed",
+    "electron-avatar-overlay-feedback-diagnostics-changed",
+    "electron-sparkle-gates-changed"
+  ]) {
+    await router.handleEnvelope(ws, {
+      type: "view-message",
+      payload: { type }
+    });
+  }
+
   assert.deepEqual(sent, []);
 
   router.dispose();
@@ -498,6 +510,7 @@ test("MessageRouter provides browser-safe virtual fetch defaults", async () => {
   assert.deepEqual(JSON.parse(sent[3].payload.bodyJsonString), {
     items: [],
     unreadRunCounts: {
+      unreadRuns: [],
       total: 0
     }
   });

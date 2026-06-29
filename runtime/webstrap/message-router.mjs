@@ -1182,17 +1182,21 @@ export class MessageRouter {
         case "codex-runtimes-config-changed":
         case "mac-menu-bar-enabled-changed":
         case "electron-avatar-overlay-restore-ready":
+        case "electron-avatar-overlay-feedback-diagnostics-changed":
         case "local-thread-activity-changed":
         case "tray-menu-threads-changed":
         case "avatar-overlay-open-state-request":
         case "keyboard-layout-map-changed":
         case "electron-sparkle-autodownload-changed":
+        case "electron-sparkle-gates-changed":
         case "browser-sidebar-owner-sync":
         case "browser-use-non-local-sites-allowed-changed":
         case "browser-sidebar-tweaks-enabled-changed":
         case "browser-use-session-route-capture":
         case "browser-sidebar-sync":
         case "browser-sidebar-command":
+        case "remote-hosted-pip-active-thread-changed":
+        case "remote-hosted-pip-visibility-changed":
         case "query-cache-invalidate":
         case "electron-desktop-features-changed":
         case "desktop-notification-show":
@@ -1889,6 +1893,7 @@ export class MessageRouter {
           payload = {
             items: [],
             unreadRunCounts: {
+              unreadRuns: [],
               total: 0
             }
           };

@@ -7,6 +7,7 @@ import path from "node:path";
 import {
   buildPatchedIndexHtml,
   defaultAllowedLocalAssetRoots,
+  findAppHostRpcModulePath,
   patchStatsigChunkSource,
   readAllowedLocalAssetFile,
   readBuildMetadata,
@@ -114,10 +115,32 @@ test("createAppHostModuleBody resolves RPC peer constructor semantically", () =>
     "/tmp/codex-web/webview"
   );
 
-  assert.match(body, /import \* as rpcModule/);
-  assert.match(body, /\[rpcModule\.V, rpcModule\.E, \.\.\.Object\.values\(rpcModule\)\]\.find/);
+  assert.match(body, /const rpcModulePromise = import/);
+  assert.match(body, /\[rpcModule\.tC, rpcModule\.V, rpcModule\.E, \.\.\.Object\.values\(rpcModule\)\]\.find/);
   assert.match(body, /getRemoteMain/);
   assert.doesNotMatch(body, /import \{ E as createRpcPeer \}/);
+});
+
+test("findAppHostRpcModulePath accepts upstream rpc facade layout", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-rpc-assets-"));
+  const assetsDir = path.join(root, "assets");
+  await fs.mkdir(assetsDir);
+  await fs.writeFile(
+    path.join(assetsDir, "rpc-new.js"),
+    "import{bS as e,vS as t,xS as n,yS as r}from './app-initial.js';e();export{t as appHost,r as appServices,n as initializeAppHostServices};"
+  );
+  const appInitialPath = path.join(assetsDir, "app-initial.js");
+  await fs.writeFile(
+    appInitialPath,
+    [
+      "function peer(port,target){return new Rpc(port,target).getRemoteMain()}",
+      "function connect(){window.postMessage({type:`connect-app-host`},window.location.origin)}",
+      "const services={appUpdates:{stateChanged(){}}}",
+      "export{peer as tC}"
+    ].join(";")
+  );
+
+  assert.equal(await findAppHostRpcModulePath(assetsDir), appInitialPath);
 });
 
 test("patchStatsigChunkSource makes statsig init non-blocking", () => {

@@ -501,18 +501,27 @@ export function createAppHostModuleBody(rpcModulePath, webRoot) {
   const rpcModuleUrl = `/${path.relative(webRoot, rpcModulePath).split(path.sep).join("/")}`;
 
   return `
-import * as rpcModule from ${JSON.stringify(rpcModuleUrl)};
+const rpcModulePromise = import(${JSON.stringify(rpcModuleUrl)});
 
-const createRpcPeer = [rpcModule.V, rpcModule.E, ...Object.values(rpcModule)].find((value) => {
+function resolveCreateRpcPeer(rpcModule) {
+  return [rpcModule.tC, rpcModule.V, rpcModule.E, ...Object.values(rpcModule)].find((value) => {
   if (typeof value !== "function") {
     return false;
   }
 
   return Function.prototype.toString.call(value).includes("getRemoteMain");
-});
+  });
+}
 
-if (typeof createRpcPeer !== "function") {
-  throw new Error("codex-webstrap app host RPC peer constructor not found");
+async function connectAppHostPort(port) {
+  const rpcModule = await rpcModulePromise;
+  const createRpcPeer = resolveCreateRpcPeer(rpcModule);
+
+  if (typeof createRpcPeer !== "function") {
+    throw new Error("codex-webstrap app host RPC peer constructor not found");
+  }
+
+  createRpcPeer(port, appHostMain);
 }
 
 const appUpdateSubscribers = new Set();
@@ -547,7 +556,11 @@ window.addEventListener("message", event => {
     return;
   }
 
-  createRpcPeer(port, appHostMain);
+  connectAppHostPort(port).catch(error => {
+    setTimeout(() => {
+      throw error;
+    });
+  });
 });
 `;
 }
