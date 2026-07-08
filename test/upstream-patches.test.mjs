@@ -8,6 +8,8 @@ import {
   hasUnguardedDynamicToolStartResponseSource,
   hasUnguardedDynamicToolThreadStartBridgeSource,
   hasUnguardedDynamicToolThreadStartRequestSource,
+  hasLinuxWindowFocusableContractSource,
+  hasUnguardedLinuxWindowFocusableSource,
   hasUnguardedOwlFeatureBindingSource,
   patchDynamicToolSchemaContractSource,
   patchDynamicToolStartResponseSource,
@@ -15,6 +17,7 @@ import {
   patchDynamicToolThreadStartRequestSource,
   patchDisableTransparencySource,
   patchLinuxOwlFeatureBindingSource,
+  patchLinuxWindowFocusableSource,
   patchLinuxOpenTargetsSource,
   dynamicToolThreadStartBridgeContract,
   dynamicToolStartResponseContract,
@@ -182,7 +185,8 @@ test("upstream patch contracts declare required contract surface", () => {
       "dynamic-tool-thread-start-bridge",
       "open-target-dispatcher",
       "linux-window-background",
-      "linux-window-transparency"
+      "linux-window-transparency",
+      "linux-window-focusable-default"
     ]
   );
   assert.deepEqual(
@@ -212,6 +216,63 @@ test("patchLinuxOpenTargetsSource reports contract name on upstream drift", () =
     () => patchLinuxOpenTargetsSource("function nope(){}"),
     /open-target-dispatcher contract changed: Unable to apply upstream patch; missing open target registry/
   );
+});
+
+test("patchLinuxWindowFocusableSource defaults undefined BrowserWindow focusability", () => {
+  const source = [
+    "async function createWindow(e={}){",
+    "let{show:l=!0,parent:p,focusable:m,lockTitle:h=!1}=e;",
+    "return new a.BrowserWindow({title:`Codex`,show:l,parent:p,focusable:m,...process.platform===`linux`?{autoHideMenuBar:!0}:{}})",
+    "}"
+  ].join("");
+
+  const patched = patchLinuxWindowFocusableSource(source);
+
+  assert.match(patched, /show:l,parent:p,focusable:m\?\?!0,/);
+  assert.doesNotMatch(patched, /show:l,parent:p,focusable:m,/);
+  assert.equal(hasLinuxWindowFocusableContractSource(patched), true);
+  assert.equal(hasUnguardedLinuxWindowFocusableSource(source), true);
+  assert.equal(hasUnguardedLinuxWindowFocusableSource(patched), false);
+});
+
+test("patchLinuxWindowFocusableSource preserves explicit unfocusable overlay windows", () => {
+  const source = [
+    "function createWindow(e={}){",
+    "let{focusable:m}=e;",
+    "new a.BrowserWindow({title:`overlay`,focusable:!1});",
+    "new a.BrowserWindow({title:`Codex`,focusable:m})",
+    "}"
+  ].join("");
+
+  const patched = patchLinuxWindowFocusableSource(source);
+
+  assert.match(patched, /title:`overlay`,focusable:!1/);
+  assert.match(patched, /title:`Codex`,focusable:m\?\?!0/);
+});
+
+test("patchLinuxWindowFocusableSource accepts legacy conditional focusable spread", () => {
+  const source = [
+    "function createWindow(e={}){",
+    "let{focusable:m}=e;",
+    "new a.BrowserWindow({title:`Codex`,...(m==null?{}:{focusable:m})})",
+    "}"
+  ].join("");
+
+  assert.equal(patchLinuxWindowFocusableSource(source), source);
+  assert.equal(hasLinuxWindowFocusableContractSource(source), true);
+  assert.equal(hasUnguardedLinuxWindowFocusableSource(source), false);
+});
+
+test("patchLinuxWindowFocusableSource is idempotent", () => {
+  const source = [
+    "function createWindow(e={}){",
+    "let{focusable:m}=e;",
+    "new a.BrowserWindow({title:`Codex`,focusable:m})",
+    "}"
+  ].join("");
+  const patched = patchLinuxWindowFocusableSource(source);
+
+  assert.equal(patchLinuxWindowFocusableSource(patched), patched);
 });
 
 test("patchLinuxOpenTargetsSource tolerates targets without platform maps", () => {

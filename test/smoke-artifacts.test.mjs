@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   evaluateBundledCodexLauncherSource,
-  evaluateDesktopBootResult
+  evaluateDesktopBootResult,
+  evaluateLinuxWindowFocusableContractSources
 } from "../scripts/smoke-artifacts.mjs";
 
 test("desktop boot smoke accepts a silent process still alive at timeout", () => {
@@ -82,4 +83,50 @@ bundled_codex="$script_dir/resources/codex"
 candidate="$(command -v codex 2>/dev/null || true)"
 export CODEX_CLI_PATH="$bundled_codex"
 `));
+});
+
+test("Linux window focusable smoke reports unguarded BrowserWindow defaults", () => {
+  const source = [
+    "function createWindow(e={}){",
+    "let{focusable:m}=e;",
+    "new a.BrowserWindow({title:`Codex`,focusable:m})",
+    "}"
+  ].join("");
+
+  assert.deepEqual(
+    evaluateLinuxWindowFocusableContractSources([
+      { file: ".vite/build/main.js", source }
+    ]),
+    {
+      checked: 1,
+      unsafe: [".vite/build/main.js"]
+    }
+  );
+});
+
+test("Linux window focusable smoke accepts patched and legacy-safe defaults", () => {
+  const patched = [
+    "function createWindow(e={}){",
+    "let{focusable:m}=e;",
+    "new a.BrowserWindow({title:`Codex`,focusable:m??!0})",
+    "}"
+  ].join("");
+  const legacy = [
+    "function createWindow(e={}){",
+    "let{focusable:m}=e;",
+    "new a.BrowserWindow({title:`Codex`,...(m==null?{}:{focusable:m})})",
+    "}"
+  ].join("");
+
+  assert.deepEqual(
+    evaluateLinuxWindowFocusableContractSources([
+      { file: ".vite/build/main.js", source: patched },
+      { file: ".vite/build/legacy.js", source: legacy },
+      { file: ".vite/build/overlay.js", source: "new a.BrowserWindow({focusable:!1})" }
+    ]),
+    {
+      checked: 2,
+      unsafe: []
+    }
+  );
 });

@@ -102,6 +102,18 @@ export const upstreamPatchContracts = [
     assertBefore: assertLinuxWindowTransparencyBefore,
     apply: patchLinuxWindowTransparency,
     assertAfter: assertLinuxWindowTransparencyAfter
+  },
+  // Why: Electron/Linux treats an explicitly undefined BrowserWindow focusable
+  // option like false. Upstream 26.623 started passing focusable: undefined for
+  // the primary window, which makes X11 WMs see an unmanaged override-redirect
+  // surface. Contract: the main window still forwards the createWindow
+  // focusable option into BrowserWindow.
+  {
+    name: "linux-window-focusable-default",
+    find: findLinuxWindowFocusablePatch,
+    assertBefore: assertLinuxWindowFocusableBefore,
+    apply: patchLinuxWindowFocusable,
+    assertAfter: assertLinuxWindowFocusableAfter
   }
 ];
 
@@ -168,7 +180,11 @@ export function patchLinuxOpenTargetsSource(source) {
 }
 
 export function patchDisableTransparencySource(source) {
-  return applyUpstreamPatchContracts(source, upstreamPatchContracts.slice(3));
+  return applyUpstreamPatchContracts(source, upstreamPatchContracts.slice(3, 5));
+}
+
+export function patchLinuxWindowFocusableSource(source) {
+  return applyUpstreamPatchContract(source, upstreamPatchContracts[5]);
 }
 
 export function patchLinuxOwlFeatureBindingSource(source) {
@@ -255,6 +271,14 @@ export function hasUnguardedDynamicToolThreadStartBridgeSource(source) {
   const patch = findDynamicToolThreadStartBridgePatch(source);
 
   return patch.status === "patch";
+}
+
+export function hasLinuxWindowFocusableContractSource(source) {
+  return Boolean(findLinuxWindowFocusablePatch(source));
+}
+
+export function hasUnguardedLinuxWindowFocusableSource(source) {
+  return findLinuxWindowFocusablePatch(source)?.status === "patch";
 }
 
 export function applyUpstreamPatchContracts(source, contracts) {
@@ -1216,6 +1240,242 @@ function backgroundPaletteForObject(object, platformVar, prefersDarkVar) {
   };
 }
 
+function patchLinuxWindowFocusable(source) {
+  const patch = findLinuxWindowFocusablePatch(source);
+
+  if (patch?.status === "patched") {
+    return source;
+  }
+
+  if (!patch) {
+    throw new Error("Unable to apply upstream patch; missing BrowserWindow focusable option");
+  }
+
+  return `${source.slice(0, patch.start)}${patch.replacement}${source.slice(patch.end)}`;
+}
+
+function findLinuxWindowFocusablePatch(source) {
+  const ast = parseJavaScript(source);
+  const candidates = [];
+  let patchedCandidates = 0;
+
+  walkAst(ast, node => {
+    if (!isFunctionNode(node)) {
+      return;
+    }
+
+    const bindings = focusableBindingsForFunction(node);
+
+    if (bindings.size === 0 || !node.body) {
+      return;
+    }
+
+    walkAstSkippingNested(node.body, child => {
+      if (child.type !== "NewExpression" || !isMemberPropertyNamed(child.callee, "BrowserWindow")) {
+        return;
+      }
+
+      const options = child.arguments[0];
+
+      if (options?.type !== "ObjectExpression") {
+        return;
+      }
+
+      for (const bindingName of bindings) {
+        const patch = linuxWindowFocusablePatchForObject(options, bindingName);
+
+        if (patch?.status === "patched") {
+          patchedCandidates++;
+          return;
+        }
+
+        if (patch) {
+          candidates.push(patch);
+          return;
+        }
+      }
+    });
+  });
+
+  if (candidates.length > 1) {
+    throw new Error("Unable to apply upstream patch; ambiguous BrowserWindow focusable option");
+  }
+
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
+
+  if (patchedCandidates > 0) {
+    return { status: "patched" };
+  }
+
+  return null;
+}
+
+function assertLinuxWindowFocusableBefore(source) {
+  const patch = findLinuxWindowFocusablePatch(source);
+
+  if (!patch || patch.status !== "patch") {
+    throw new Error("missing unguarded BrowserWindow focusable option");
+  }
+}
+
+function assertLinuxWindowFocusableAfter(source) {
+  const patch = findLinuxWindowFocusablePatch(source);
+
+  if (!patch || patch.status !== "patched") {
+    throw new Error("Linux BrowserWindow focusable assertion failed");
+  }
+}
+
+function focusableBindingsForFunction(node) {
+  const bindings = new Set();
+
+  for (const param of node.params || []) {
+    const binding = objectPatternBindings(param).focusable;
+
+    if (binding) {
+      bindings.add(binding);
+    }
+  }
+
+  if (!node.body) {
+    return bindings;
+  }
+
+  walkAstSkippingNested(node.body, child => {
+    if (child.type !== "VariableDeclarator") {
+      return;
+    }
+
+    const binding = objectPatternBindings(child.id).focusable;
+
+    if (binding) {
+      bindings.add(binding);
+    }
+  });
+
+  return bindings;
+}
+
+function linuxWindowFocusablePatchForObject(object, bindingName) {
+  const property = getObjectProperty(object, "focusable");
+
+  if (property) {
+    if (isFocusableDefaultPatched(property.value, bindingName)) {
+      return { status: "patched" };
+    }
+
+    if (isIdentifierNamed(property.value, bindingName)) {
+      return {
+        status: "patch",
+        start: property.value.start,
+        end: property.value.end,
+        replacement: `${bindingName}??!0`
+      };
+    }
+
+    return null;
+  }
+
+  if (hasSafeFocusableSpread(object, bindingName)) {
+    return { status: "patched" };
+  }
+
+  return null;
+}
+
+function hasSafeFocusableSpread(object, bindingName) {
+  return object.properties.some(property =>
+    property.type === "SpreadElement" &&
+    isSafeFocusableConditional(property.argument, bindingName)
+  );
+}
+
+function isSafeFocusableConditional(node, bindingName) {
+  if (node?.type !== "ConditionalExpression") {
+    return false;
+  }
+
+  if (isNullishCheck(node.test, bindingName)) {
+    return isEmptyObjectExpression(node.consequent) &&
+      isFocusableObjectForBinding(node.alternate, bindingName);
+  }
+
+  if (isNotNullishCheck(node.test, bindingName)) {
+    return isFocusableObjectForBinding(node.consequent, bindingName) &&
+      isEmptyObjectExpression(node.alternate);
+  }
+
+  return false;
+}
+
+function isFocusableObjectForBinding(node, bindingName) {
+  if (node?.type !== "ObjectExpression") {
+    return false;
+  }
+
+  const property = getObjectProperty(node, "focusable");
+
+  return Boolean(property && isIdentifierNamed(property.value, bindingName));
+}
+
+function isFocusableDefaultPatched(node, bindingName) {
+  return (
+    node?.type === "LogicalExpression" &&
+    node.operator === "??" &&
+    isIdentifierNamed(node.left, bindingName) &&
+    isTrueExpression(node.right)
+  );
+}
+
+function isNullishCheck(node, bindingName) {
+  return isNullishBinaryExpression(node, bindingName, ["==", "==="]);
+}
+
+function isNotNullishCheck(node, bindingName) {
+  return isNullishBinaryExpression(node, bindingName, ["!=", "!=="]);
+}
+
+function isNullishBinaryExpression(node, bindingName, operators) {
+  if (node?.type !== "BinaryExpression" || !operators.includes(node.operator)) {
+    return false;
+  }
+
+  return (
+    (isIdentifierNamed(node.left, bindingName) && isNullishExpression(node.right)) ||
+    (isNullishExpression(node.left) && isIdentifierNamed(node.right, bindingName))
+  );
+}
+
+function isNullishExpression(node) {
+  return isNullLiteral(node) || isVoidZeroExpression(node);
+}
+
+function isVoidZeroExpression(node) {
+  return (
+    node?.type === "UnaryExpression" &&
+    node.operator === "void" &&
+    node.argument.type === "Literal" &&
+    node.argument.value === 0
+  );
+}
+
+function isEmptyObjectExpression(node) {
+  return node?.type === "ObjectExpression" && node.properties.length === 0;
+}
+
+function isTrueExpression(node) {
+  return (
+    node?.type === "Literal" && node.value === true
+  ) || (
+    node?.type === "UnaryExpression" &&
+    node.operator === "!" &&
+    node.argument.type === "Literal" &&
+    (node.argument.value === 0 || node.argument.value === false)
+  );
+}
+
 function parseJavaScript(source) {
   try {
     return parse(source, {
@@ -1239,6 +1499,38 @@ function walkAst(root, visit) {
     const node = stack.pop();
 
     if (!isNode(node)) {
+      continue;
+    }
+
+    visit(node);
+
+    for (const key of Object.keys(node)) {
+      if (key === "start" || key === "end" || key === "loc" || key === "range") {
+        continue;
+      }
+
+      const value = node[key];
+
+      if (Array.isArray(value)) {
+        for (let index = value.length - 1; index >= 0; index--) {
+          if (isNode(value[index])) {
+            stack.push(value[index]);
+          }
+        }
+      } else if (isNode(value)) {
+        stack.push(value);
+      }
+    }
+  }
+}
+
+function walkAstSkippingNested(root, visit) {
+  const stack = [root];
+
+  while (stack.length > 0) {
+    const node = stack.pop();
+
+    if (!isNode(node) || (node !== root && isFunctionNode(node))) {
       continue;
     }
 

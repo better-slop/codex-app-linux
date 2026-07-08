@@ -7,10 +7,12 @@ import * as asar from "@electron/asar";
 
 import { channelPaths, getChannel, parseArgs, projectRoot } from "./lib/config.mjs";
 import {
+  hasLinuxWindowFocusableContractSource,
   hasUnguardedDynamicToolSchemaContractSource,
   hasUnguardedDynamicToolStartResponseSource,
   hasUnguardedDynamicToolThreadStartBridgeSource,
   hasUnguardedDynamicToolThreadStartRequestSource,
+  hasUnguardedLinuxWindowFocusableSource,
   hasUnguardedOwlFeatureBindingSource
 } from "./lib/upstream-patches.mjs";
 
@@ -73,6 +75,9 @@ export async function smokeLinuxArtifacts({
   );
   await runCheck(summary, "owl-runtime-contract", () =>
     assertOwlRuntimeContract(resourcesDir)
+  );
+  await runCheck(summary, "linux-window-focusable-contract", () =>
+    assertLinuxWindowFocusableContract(resourcesDir)
   );
   await runCheck(summary, "dynamic-tool-schema-contract", () =>
     assertDynamicToolSchemaContract(resourcesDir)
@@ -383,6 +388,25 @@ async function assertDynamicToolSchemaContract(resourcesDir) {
   };
 }
 
+async function assertLinuxWindowFocusableContract(resourcesDir) {
+  const appAsarPath = path.join(resourcesDir, "app.asar");
+  const unsafeSources = await findLinuxWindowFocusableContractSources(appAsarPath);
+
+  if (unsafeSources.unsafe.length > 0) {
+    throw new Error(
+      `Linux primary BrowserWindow must default undefined focusable to true; ${unsafeSources.unsafe.slice(0, 5).join(", ")} still passes a destructured focusable value directly and can create an unmanageable, unfocusable X11 window`
+    );
+  }
+
+  if (unsafeSources.checked === 0) {
+    throw new Error("Unable to find Linux BrowserWindow focusable contract in app.asar");
+  }
+
+  return {
+    checked: unsafeSources.checked
+  };
+}
+
 async function assertDynamicToolStartResponseContract(resourcesDir) {
   const appAsarPath = path.join(resourcesDir, "app.asar");
   const unsafeSources = await findUnguardedDynamicToolStartResponseSources(appAsarPath);
@@ -437,6 +461,58 @@ async function assertDynamicToolThreadStartRequestContract(resourcesDir) {
 
   return {
     checked: unsafeSources.checked
+  };
+}
+
+async function findLinuxWindowFocusableContractSources(appAsarPath) {
+  const files = await asar.listPackage(appAsarPath);
+  const sources = [];
+
+  for (const file of files) {
+    if (!/\.(?:js|mjs|cjs)$/i.test(file)) {
+      continue;
+    }
+
+    let source;
+
+    try {
+      source = asar.extractFile(appAsarPath, file.replace(/^\//, "")).toString("utf8");
+    } catch {
+      continue;
+    }
+
+    if (!source.includes("BrowserWindow") || !source.includes("focusable")) {
+      continue;
+    }
+
+    sources.push({
+      file: file.replace(/^\//, ""),
+      source
+    });
+  }
+
+  return evaluateLinuxWindowFocusableContractSources(sources);
+}
+
+export function evaluateLinuxWindowFocusableContractSources(sources) {
+  const unsafe = [];
+  let checked = 0;
+
+  for (const { file, source } of sources) {
+    if (!hasLinuxWindowFocusableContractSource(source)) {
+      continue;
+    }
+
+    checked++;
+
+    if (hasUnguardedLinuxWindowFocusableSource(source)) {
+      unsafe.push(file);
+    }
+  }
+
+  return {
+    checked,
+    unsafe
   };
 }
 
