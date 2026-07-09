@@ -30,9 +30,6 @@ export default {
   electronVersion,
   npmRebuild: false,
   buildDependenciesFromSource: false,
-  extraMetadata: {
-    main: ".vite/build/bootstrap.js"
-  },
   asar: true,
   files: [
     {
