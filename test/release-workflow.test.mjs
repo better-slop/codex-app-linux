@@ -40,6 +40,20 @@ test("release workflow runs canary and smoke before publish mutations", async ()
   assert.ok(betaSmoke < betaRelease);
 });
 
+test("release workflow installs the static Linux Chrome host toolchain", async () => {
+  const workflow = await fs.readFile(".github/workflows/release.yml", "utf8");
+  const prodJob = workflow.slice(
+    workflow.indexOf("  publish-prod:"),
+    workflow.indexOf("  publish-beta:")
+  );
+  const betaJob = workflow.slice(workflow.indexOf("  publish-beta:"));
+
+  for (const job of [prodJob, betaJob]) {
+    assert.match(job, /rustup target add x86_64-unknown-linux-musl/);
+    assert.match(job, /musl-tools/);
+  }
+});
+
 test("upstream canary workflow reports scheduled failures without publish permissions", async () => {
   const workflow = await fs.readFile(".github/workflows/upstream-canary.yml", "utf8");
   const canaryJob = workflow.slice(
