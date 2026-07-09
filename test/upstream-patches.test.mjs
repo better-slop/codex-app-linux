@@ -9,6 +9,7 @@ import {
   hasUnguardedOwlFeatureBindingSource,
   patchDisableTransparencySource,
   patchLinuxOwlFeatureBindingSource,
+  patchLinuxChromeExtensionDetectionSource,
   patchLinuxWindowFocusableSource,
   patchLinuxOpenTargetsSource,
   upstreamPatchContracts
@@ -17,6 +18,34 @@ import {
 const openTargetResolverSource =
   "function W(e){let t=which.default.sync(e,{nothrow:!0});return typeof t==`string`&&fs.existsSync(t)?t:null}";
 const withOpenTargetResolver = parts => [openTargetResolverSource, ...parts].join(";");
+
+test("patchLinuxChromeExtensionDetectionSource finds stable Chrome profiles", () => {
+  const source =
+    "function o({homeDir:e,localAppDataDir:t,platform:n}){return n===`darwin`?p.join(e,`Library`,`Application Support`,`Google`,`Chrome`):n===`win32`?p.join(t??p.join(e,`AppData`,`Local`),`Google`,`Chrome`,`User Data`):null};globalThis.resolveChromeRoot=o";
+  const patched = patchLinuxChromeExtensionDetectionSource(source);
+  const context = {
+    globalThis: {},
+    p: { join: (...parts) => parts.join("/") }
+  };
+
+  vm.runInNewContext(patched, context);
+
+  assert.equal(
+    context.globalThis.resolveChromeRoot({
+      homeDir: "/home/zero",
+      platform: "linux"
+    }),
+    "/home/zero/.config/google-chrome"
+  );
+  assert.equal(
+    context.globalThis.resolveChromeRoot({
+      homeDir: "/Users/zero",
+      platform: "darwin"
+    }),
+    "/Users/zero/Library/Application Support/Google/Chrome"
+  );
+  assert.equal(patchLinuxChromeExtensionDetectionSource(patched), patched);
+});
 
 test("patchLinuxOpenTargetsSource adds Linux editor targets and exposes app paths", () => {
   const source = withOpenTargetResolver([
@@ -173,7 +202,8 @@ test("upstream patch contracts declare required contract surface", () => {
       "linux-window-background",
       "linux-window-transparency",
       "linux-window-focusable-default",
-      "linux-chrome-extension-host-content-variant"
+      "linux-chrome-extension-host-content-variant",
+      "linux-chrome-extension-detection"
     ]
   );
 });
