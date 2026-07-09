@@ -291,6 +291,7 @@ export function evaluateLinuxChromeExtensionHostEnsure(message, {
   } catch {
     throw new Error("Chrome extension host returned an invalid app-server URL");
   }
+  const agentModeDefaults = result?.runtimeConfig?.desktopAgentModeDefaults;
   if (
     result?.entryId !== smokeEntryId ||
     typeof result?.runtimeSessionId !== "string" ||
@@ -304,7 +305,11 @@ export function evaluateLinuxChromeExtensionHostEnsure(message, {
     result?.runtimeConfig?.platform !== "linux" ||
     result?.runtimeConfig?.codexCliPath !== codexCliPath ||
     result?.runtimeConfig?.codexHome !== codexHome ||
-    result?.runtimeConfig?.nodePath !== nodePath
+    result?.runtimeConfig?.nodePath !== nodePath ||
+    !isJsonObject(agentModeDefaults) ||
+    !isJsonObject(agentModeDefaults.agentModesByHostId) ||
+    !isJsonObject(agentModeDefaults.preferredNonFullAccessModesByHostId) ||
+    Object.hasOwn(result.runtimeConfig, "browserClientSha256")
   ) {
     throw new Error(
       `Chrome extension host returned an incompatible managed runtime: ${JSON.stringify(result)}`
@@ -315,6 +320,10 @@ export function evaluateLinuxChromeExtensionHostEnsure(message, {
     entryId: result.entryId,
     protocolVersion: result.selected.nativeHostProtocolVersion
   };
+}
+
+function isJsonObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function runFileType(hostPath) {

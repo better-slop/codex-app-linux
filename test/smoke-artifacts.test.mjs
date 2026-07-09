@@ -240,6 +240,10 @@ test("Chrome extension host smoke verifies desktop-managed runtime selection", (
         platform: "linux",
         codexCliPath: "/opt/codex/resources/codex",
         codexHome: "/tmp/codex-home",
+        desktopAgentModeDefaults: {
+          agentModesByHostId: {},
+          preferredNonFullAccessModesByHostId: {}
+        },
         nodePath: "/opt/codex/resources/node"
       }
     }
@@ -261,5 +265,23 @@ test("Chrome extension host smoke verifies desktop-managed runtime selection", (
   assert.throws(
     () => evaluateLinuxChromeExtensionHostEnsure({ ...message, id: "wrong" }, {}),
     /unexpected ensure response ID/
+  );
+  assert.throws(
+    () => evaluateLinuxChromeExtensionHostEnsure({
+      ...message,
+      result: {
+        ...message.result,
+        runtimeConfig: {
+          ...message.result.runtimeConfig,
+          desktopAgentModeDefaults: null
+        }
+      }
+    }, {
+      channelName: "prod",
+      codexCliPath: "/opt/codex/resources/codex",
+      codexHome: "/tmp/codex-home",
+      nodePath: "/opt/codex/resources/node"
+    }),
+    /incompatible managed runtime/
   );
 });
