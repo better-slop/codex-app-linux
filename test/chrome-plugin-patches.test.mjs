@@ -1,8 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import {
-  patchLinuxBrowserClientProfileSource,
+  patchLinuxChromePluginResources,
   patchLinuxNativeHostManifestCheckSource
 } from "../scripts/lib/chrome-plugin-patches.mjs";
 
@@ -32,21 +35,29 @@ test("native host diagnostics fail closed when the upstream contract drifts", ()
   );
 });
 
-test("browser client reads Linux Chrome profile metadata from ~/.config", () => {
-  const source =
+test("resource patching preserves the trusted browser client bytes", async t => {
+  const resourcesDir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-chrome-plugin-"));
+  t.after(() => fs.rm(resourcesDir, { recursive: true, force: true }));
+
+  const scriptsDir = path.join(
+    resourcesDir,
+    "plugins",
+    "openai-bundled",
+    "plugins",
+    "chrome",
+    "scripts"
+  );
+  await fs.mkdir(scriptsDir, { recursive: true });
+  await fs.writeFile(
+    path.join(scriptsDir, "check-native-host-manifest.js"),
+    nativeHostManifestSource
+  );
+  const browserClientSource =
     'var Xd=dH(pH(),fH()==="win32"?"AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data":"Library/Application Support/Google/Chrome");';
-  const patched = patchLinuxBrowserClientProfileSource(source);
+  const browserClientPath = path.join(scriptsDir, "browser-client.mjs");
+  await fs.writeFile(browserClientPath, browserClientSource);
 
-  assert.match(
-    patched,
-    /fH\(\)==="linux"\?"\.config\/google-chrome":"Library\/Application Support\/Google\/Chrome"/
-  );
-  assert.equal(patchLinuxBrowserClientProfileSource(patched), patched);
-});
+  await patchLinuxChromePluginResources(resourcesDir);
 
-test("browser profile patch fails closed when the upstream contract drifts", () => {
-  assert.throws(
-    () => patchLinuxBrowserClientProfileSource("var profileRoot = null;"),
-    /Linux Chrome profile metadata contract changed/
-  );
+  assert.equal(await fs.readFile(browserClientPath, "utf8"), browserClientSource);
 });
