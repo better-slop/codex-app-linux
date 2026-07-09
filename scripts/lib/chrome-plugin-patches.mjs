@@ -5,31 +5,19 @@ import { parse } from "acorn";
 import { chromePluginRoot } from "./chrome-extension-host.mjs";
 
 const nativeManifestContract = "Linux native-host manifest diagnostics";
-const browserProfileContract = "Linux Chrome profile metadata";
-const macProfileSuffix = ':"Library/Application Support/Google/Chrome"';
 
 export async function patchLinuxChromePluginResources(resourcesDir) {
   const scriptsDir = path.join(chromePluginRoot(resourcesDir), "scripts");
-  const targets = [
-    {
-      path: path.join(scriptsDir, "check-native-host-manifest.js"),
-      patch: patchLinuxNativeHostManifestCheckSource
-    },
-    {
-      path: path.join(scriptsDir, "browser-client.mjs"),
-      patch: patchLinuxBrowserClientProfileSource
-    }
-  ];
-
-  for (const target of targets) {
-    const source = await fs.readFile(target.path, "utf8").catch(error => {
-      throw new Error(`Required Chrome plugin script is missing: ${target.path}`, {
-        cause: error
-      });
+  // browser-client.mjs is SHA-pinned by the desktop runtime. Keep its bytes
+  // intact; changing its profile metadata would disable the trusted Node REPL.
+  const manifestCheckPath = path.join(scriptsDir, "check-native-host-manifest.js");
+  const source = await fs.readFile(manifestCheckPath, "utf8").catch(error => {
+    throw new Error(`Required Chrome plugin script is missing: ${manifestCheckPath}`, {
+      cause: error
     });
-    const patched = target.patch(source);
-    if (patched !== source) await fs.writeFile(target.path, patched);
-  }
+  });
+  const patched = patchLinuxNativeHostManifestCheckSource(source);
+  if (patched !== source) await fs.writeFile(manifestCheckPath, patched);
 }
 
 export function patchLinuxNativeHostManifestCheckSource(source) {
@@ -75,52 +63,12 @@ export function patchLinuxNativeHostManifestCheckSource(source) {
   }
 }
 
-export function patchLinuxBrowserClientProfileSource(source) {
-  if (hasLinuxBrowserClientProfile(source)) return source;
-
-  try {
-    const matches = [];
-    let offset = -1;
-    while ((offset = source.indexOf(macProfileSuffix, offset + 1)) !== -1) {
-      const prefix = source.slice(Math.max(0, offset - 256), offset);
-      const match = prefix.match(
-        /([A-Za-z_$][\w$]*)\(\)==="win32"\?"AppData(?:\\\\|\\)Local(?:\\\\|\\)Google(?:\\\\|\\)Chrome(?:\\\\|\\)User Data"$/
-      );
-      if (match) matches.push({ offset, platformFunction: match[1] });
-    }
-
-    if (matches.length !== 1) {
-      throw new Error(`expected one Chrome profile root, found ${matches.length}`);
-    }
-
-    const { offset: matchOffset, platformFunction } = matches[0];
-    const linuxSuffix =
-      `:${platformFunction}()===\"linux\"?\".config/google-chrome\"` +
-      macProfileSuffix;
-    const patched =
-      source.slice(0, matchOffset) +
-      linuxSuffix +
-      source.slice(matchOffset + macProfileSuffix.length);
-
-    if (!hasLinuxBrowserClientProfile(patched)) {
-      throw new Error("Linux Chrome profile root was not applied");
-    }
-    return patched;
-  } catch (error) {
-    throw contractError(browserProfileContract, error);
-  }
-}
-
 function hasLinuxNativeHostManifestCheck(source) {
   return (
     source.includes('process.platform === "linux"') &&
     source.includes('"NativeMessagingHosts"') &&
     source.includes("supports macOS, Linux, and Windows")
   );
-}
-
-function hasLinuxBrowserClientProfile(source) {
-  return /[A-Za-z_$][\w$]*\(\)==="linux"\?"\.config\/google-chrome"/.test(source);
 }
 
 function findNamedFunction(source, name) {
