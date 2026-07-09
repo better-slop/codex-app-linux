@@ -1,14 +1,19 @@
 //! Legacy Browser Use relay over a private Unix-domain socket.
 
+#[path = "legacy_connection.rs"]
+mod connection;
 #[path = "legacy_info.rs"]
 mod info;
 
 use crate::{
-    framing::{read_frame, write_frame},
+    framing::{MAX_OUTBOUND_BYTES, read_frame_with_limit, write_frame},
     rollout::RolloutTracker,
     rpc,
     uds::authorize_peer,
 };
+use connection::ConnectionPermit;
+#[cfg(test)]
+use connection::MAX_CLIENT_CONNECTIONS;
 use info::{extension_info_response, missing_runtime_get_version};
 use serde_json::{Value, json};
 use std::{
@@ -19,6 +24,7 @@ use std::{
     process,
     sync::{
         Arc, Mutex,
+        atomic::AtomicUsize,
         mpsc::{self, SyncSender},
     },
     thread,
@@ -230,6 +236,7 @@ impl LegacyBridge {
 }
 
 fn accept_clients(listener: UnixListener, state: Arc<Mutex<State>>, tracker: RolloutTracker) {
+    let active = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
         let stream = match stream {
             Ok(stream) => stream,
@@ -242,9 +249,24 @@ fn accept_clients(listener: UnixListener, state: Arc<Mutex<State>>, tracker: Rol
             crate::log(error);
             continue;
         }
+        let Some(permit) = ConnectionPermit::acquire(Arc::clone(&active)) else {
+            crate::log("browser relay rejected excess client connection");
+            let _ = stream.shutdown(Shutdown::Both);
+            continue;
+        };
         let state = Arc::clone(&state);
         let tracker = tracker.clone();
-        thread::spawn(move || serve_client(stream, state, tracker));
+        if let Err(error) = thread::Builder::new()
+            .name("codex-browser-relay-client".to_string())
+            .spawn(move || {
+                let _permit = permit;
+                serve_client(stream, state, tracker);
+            })
+        {
+            crate::log(format_args!(
+                "failed to spawn browser relay client: {error}"
+            ));
+        }
     }
 }
 
@@ -253,7 +275,7 @@ fn serve_client(mut stream: UnixStream, state: Arc<Mutex<State>>, tracker: Rollo
         crate::log(format_args!("browser client timeout setup: {error}"));
         return;
     }
-    let first = match read_frame(&mut stream) {
+    let first = match read_frame_with_limit(&mut stream, MAX_OUTBOUND_BYTES) {
         Ok(Some(message)) => message,
         Ok(None) => return,
         Err(error) => {
@@ -288,7 +310,7 @@ fn serve_client(mut stream: UnixStream, state: Arc<Mutex<State>>, tracker: Rollo
     let client_id = register_client(&state, sender, shutdown);
     handle_client_message(&state, &tracker, client_id, first);
     loop {
-        match read_frame(&mut stream) {
+        match read_frame_with_limit(&mut stream, MAX_OUTBOUND_BYTES) {
             Ok(Some(message)) => handle_client_message(&state, &tracker, client_id, message),
             Ok(None) => break,
             Err(error) => {
