@@ -22,7 +22,7 @@ test("patchLinuxChromeExtensionHostContentVariant revises only the Chrome cache 
 
   assert.match(
     patched,
-    /bundledContentVariant:e\.pluginName===`chrome`\?`\$\{t\}-linux-extension-host-v2`:t/
+    /bundledContentVariant:e\.pluginName===`chrome`\?`\$\{t\}-linux-extension-host-v3`:t/
   );
   assert.equal(hasLinuxChromeExtensionHostContentVariant(patched), true);
 });
