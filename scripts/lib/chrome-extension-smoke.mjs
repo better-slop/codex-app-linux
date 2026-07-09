@@ -3,6 +3,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { CHROME_EXTENSION_HOST_ARCH } from "./chrome-extension-constants.mjs";
+import { chromePluginRoot } from "./chrome-extension-host.mjs";
 import { projectRoot } from "./config.mjs";
 
 const extensionId = "hehggadaopoacecdllhhajmbjkdcmajg";
@@ -12,18 +14,12 @@ const smokeEntryId = "linux-managed-smoke";
 /** Verify the packaged ELF and execute a real protocol-v2 hello exchange. */
 export async function assertLinuxChromeExtensionHost(resourcesDir, channelName) {
   resourcesDir = path.resolve(resourcesDir);
-  const pluginRoot = path.join(
-    resourcesDir,
-    "plugins",
-    "openai-bundled",
-    "plugins",
-    "chrome"
-  );
+  const pluginRoot = chromePluginRoot(resourcesDir);
   const hostPath = path.join(
     pluginRoot,
     "extension-host",
     "linux",
-    "x64",
+    CHROME_EXTENSION_HOST_ARCH,
     "extension-host"
   );
 
