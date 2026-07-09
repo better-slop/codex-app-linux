@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   evaluateBundledCodexLauncherSource,
   evaluateDesktopBootResult,
+  evaluateLinuxChromeExtensionHostArtifact,
   evaluateLinuxWindowFocusableContractSources
 } from "../scripts/smoke-artifacts.mjs";
 
@@ -128,5 +129,41 @@ test("Linux window focusable smoke accepts patched and legacy-safe defaults", ()
       checked: 2,
       unsafe: []
     }
+  );
+});
+
+test("Chrome extension host smoke accepts an executable static PIE x64 host", () => {
+  assert.deepEqual(
+    evaluateLinuxChromeExtensionHostArtifact({
+      fileType:
+        "ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, stripped",
+      mode: 0o755
+    }),
+    {
+      executable: true,
+      static: true,
+      architecture: "x86-64"
+    }
+  );
+});
+
+test("Chrome extension host smoke rejects dynamic and non-executable hosts", () => {
+  assert.throws(
+    () =>
+      evaluateLinuxChromeExtensionHostArtifact({
+        fileType:
+          "ELF 64-bit LSB pie executable, x86-64, dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2",
+        mode: 0o755
+      }),
+    /must be statically linked/
+  );
+  assert.throws(
+    () =>
+      evaluateLinuxChromeExtensionHostArtifact({
+        fileType:
+          "ELF 64-bit LSB pie executable, x86-64, static-pie linked, stripped",
+        mode: 0o644
+      }),
+    /must be executable/
   );
 });
