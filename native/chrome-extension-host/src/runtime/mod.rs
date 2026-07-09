@@ -1,4 +1,5 @@
 mod broker;
+mod desktop_agent_mode;
 mod http;
 mod process;
 mod proxy;
@@ -13,8 +14,6 @@ use std::{
     env,
     sync::{Arc, Mutex},
 };
-
-const DEFAULT_CLIENT_ID: &str = "default";
 
 pub struct RuntimeManager {
     config_source: Arc<HostConfigSource>,
@@ -69,7 +68,7 @@ impl RuntimeManager {
         let client_id = params
             .get("clientId")
             .and_then(Value::as_str)
-            .unwrap_or(DEFAULT_CLIENT_ID);
+            .unwrap_or(broker::DEFAULT_CLIENT_ID);
         validate_client_id(client_id)?;
 
         let mut session_slot = self
@@ -120,6 +119,7 @@ impl RuntimeManager {
             .as_ref()
             .map(|hash| vec![hash.clone()])
             .unwrap_or_default();
+        let desktop_agent_mode_defaults = desktop_agent_mode::load(codex_home.as_deref());
         Ok(json!({
             "entryId": config.entry_id.as_deref().unwrap_or("linux-bundled"),
             "localAppServerUrl": session.url(),
@@ -136,12 +136,11 @@ impl RuntimeManager {
                 "platform": "linux",
                 "codexCliPath": config.codex_cli_path,
                 "codexHome": codex_home,
-                "desktopAgentModeDefaults": Value::Null,
+                "desktopAgentModeDefaults": desktop_agent_mode_defaults,
                 "nodePath": config.node_path,
                 "nodeReplPath": config.node_repl_path,
                 "nodeModuleDirs": config.node_module_dirs,
                 "browserClientPath": config.browser_client_path,
-                "browserClientSha256": browser_client_sha256,
                 "trustedBrowserClientSha256s": trusted_hashes
             }
         }))
@@ -255,7 +254,7 @@ mod tests {
             browser_client_path: Some(cli.clone()),
             channel: Some("prod".to_string()),
             codex_cli_path: cli.clone(),
-            codex_home: None,
+            codex_home: Some(root.clone()),
             cli_version: None,
             entry_id: None,
             extension_id: Some(TEST_EXTENSION_ID.to_string()),
@@ -341,7 +340,14 @@ mod tests {
         let second = manager.ensure(&full_params("window-2"), false).unwrap();
         assert_eq!(first["localAppServerUrl"], second["localAppServerUrl"]);
         assert_eq!(first["runtimeSessionId"], second["runtimeSessionId"]);
-        assert!(first["runtimeConfig"]["desktopAgentModeDefaults"].is_null());
+        assert_eq!(
+            first["runtimeConfig"]["desktopAgentModeDefaults"],
+            json!({
+                "agentModesByHostId": {},
+                "preferredNonFullAccessModesByHostId": {}
+            })
+        );
+        assert!(first["runtimeConfig"].get("browserClientSha256").is_none());
         assert_eq!(wait_for_process_count(&process_count, 1), "p\n");
 
         let restarted = manager.ensure(&full_params("window-2"), true).unwrap();
