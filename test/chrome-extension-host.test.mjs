@@ -48,6 +48,13 @@ test("stageLinuxChromeExtensionHost installs the project host over an empty upst
     ),
     /ddcd9b559274abc7d4c8ae8ba54813a8acbcb982/
   );
+  assert.match(
+    await fs.readFile(
+      path.join(pluginDir, "extension-host", "linux", "RUST_DEPENDENCY_LICENSES.md"),
+      "utf8"
+    ),
+    /tungstenite 0\.29\.0[\s\S]*MIT License/
+  );
 });
 
 test("stageLinuxChromeExtensionHost replaces an untrusted upstream Linux host", async () => {
