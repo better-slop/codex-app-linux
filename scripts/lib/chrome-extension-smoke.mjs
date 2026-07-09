@@ -6,9 +6,12 @@ import path from "node:path";
 import { projectRoot } from "./config.mjs";
 
 const extensionId = "hehggadaopoacecdllhhajmbjkdcmajg";
+const nativeHostName = "com.openai.codexextension";
+const smokeEntryId = "linux-managed-smoke";
 
 /** Verify the packaged ELF and execute a real protocol-v2 hello exchange. */
 export async function assertLinuxChromeExtensionHost(resourcesDir, channelName) {
+  resourcesDir = path.resolve(resourcesDir);
   const pluginRoot = path.join(
     resourcesDir,
     "plugins",
@@ -35,7 +38,7 @@ export async function assertLinuxChromeExtensionHost(resourcesDir, channelName) 
     fileType,
     mode: stat.mode & 0o777
   });
-  const hello = await smokeLinuxChromeExtensionHostHello({
+  const protocol = await smokeLinuxChromeExtensionHostProtocol({
     channelName,
     hostPath,
     pluginRoot,
@@ -45,7 +48,7 @@ export async function assertLinuxChromeExtensionHost(resourcesDir, channelName) 
   return {
     path: path.relative(resourcesDir, hostPath),
     ...artifact,
-    hello
+    ...protocol
   };
 }
 
@@ -67,7 +70,7 @@ export function evaluateLinuxChromeExtensionHostArtifact({ fileType, mode }) {
   };
 }
 
-async function smokeLinuxChromeExtensionHostHello({
+async function smokeLinuxChromeExtensionHostProtocol({
   channelName,
   hostPath,
   pluginRoot,
@@ -77,59 +80,147 @@ async function smokeLinuxChromeExtensionHostHello({
     path.join(os.tmpdir(), "codex-chrome-host-smoke-")
   );
   const temporaryHostPath = path.join(temporaryDir, "extension-host");
+  const codexHome = path.join(temporaryDir, "codex-home");
+  const stateHome = path.join(temporaryDir, "state");
+  const socketDir = path.join(temporaryDir, "sockets");
   try {
     await fs.copyFile(hostPath, temporaryHostPath);
     await fs.chmod(temporaryHostPath, 0o755);
-    await fs.writeFile(
-      path.join(temporaryDir, "extension-host-config.json"),
-      `${JSON.stringify(
-        {
-          schemaVersion: 1,
-          browserClientPath: path.join(pluginRoot, "scripts", "browser-client.mjs"),
-          channel: channelName,
-          codexCliPath: path.join(resourcesDir, "codex"),
-          extensionId,
-          nodePath: path.join(resourcesDir, "node"),
-          nodeReplPath: path.join(resourcesDir, "node_repl"),
-          proxyHost: "127.0.0.1",
-          proxyPort: 0
-        },
-        null,
-        2
-      )}\n`
-    );
-
-    const request = nativeMessageFrame({
+    await Promise.all([
+      fs.mkdir(codexHome, { recursive: true }),
+      fs.mkdir(stateHome, { recursive: true }),
+      fs.mkdir(socketDir, { recursive: true })
+    ]);
+    const codexCliPath = path.join(resourcesDir, "codex");
+    const nodePath = path.join(resourcesDir, "node");
+    const registry = managedRegistry({
+      channelName,
+      codexCliPath,
+      codexHome,
+      hostPath: temporaryHostPath,
+      nodePath,
+      pluginRoot,
+      resourcesDir
+    });
+    await Promise.all([
+      writeRegistry(
+        path.join(stateHome, "openai-codex", "chrome-native-hosts-v2.json"),
+        registry
+      ),
+      writeRegistry(path.join(codexHome, "chrome-native-hosts-v2.json"), registry)
+    ]);
+    const environment = {
+      ...process.env,
+      CODEX_BROWSER_USE_SOCKET_DIR: socketDir,
+      CODEX_HOME: codexHome,
+      HOME: temporaryDir,
+      XDG_STATE_HOME: stateHome
+    };
+    const constraints = {
+      extensionBuildChannel: channelName,
+      extensionId,
+      extensionVersion: "smoke",
+      nativeHostName,
+      requiredAppServerProtocolVersion: 2,
+      requiredNativeHostProtocolVersion: 2
+    };
+    const helloRequest = nativeMessageFrame({
       jsonrpc: "2.0",
       id: "smoke-hello",
       method: "codexRuntime/hello",
-      params: {
-        constraints: {
-          extensionBuildChannel: channelName,
-          extensionId,
-          extensionVersion: "smoke",
-          nativeHostName: "com.openai.codexextension",
-          requiredAppServerProtocolVersion: 2,
-          requiredNativeHostProtocolVersion: 2
-        }
-      }
+      params: { constraints }
     });
-    const result = await runNativeMessage(
+    const helloResult = await runNativeMessage(
       temporaryHostPath,
       [`chrome-extension://${extensionId}/`],
-      request
+      helloRequest,
+      environment
     );
-    if (result.code !== 0) {
+    if (helloResult.code !== 0) {
       throw new Error(
-        `Chrome extension host hello exited ${result.code}: ${result.stderr.slice(0, 1000)}`
+        `Chrome extension host hello exited ${helloResult.code}: ${helloResult.stderr.slice(0, 1000)}`
       );
     }
-    return evaluateLinuxChromeExtensionHostHello(
-      parseNativeMessageFrame(result.stdout)
+    const ensureRequest = nativeMessageFrame({
+      jsonrpc: "2.0",
+      id: "smoke-ensure",
+      method: "codexRuntime/ensure",
+      params: { clientId: "artifact-smoke", constraints }
+    });
+    const ensureResult = await runNativeMessage(
+      temporaryHostPath,
+      [`chrome-extension://${extensionId}/`],
+      ensureRequest,
+      environment
     );
+    if (ensureResult.code !== 0) {
+      throw new Error(
+        `Chrome extension host ensure exited ${ensureResult.code}: ${ensureResult.stderr.slice(0, 1000)}`
+      );
+    }
+    return {
+      hello: evaluateLinuxChromeExtensionHostHello(
+        parseNativeMessageFrame(helloResult.stdout)
+      ),
+      runtime: evaluateLinuxChromeExtensionHostEnsure(
+        parseNativeMessageFrame(ensureResult.stdout),
+        { channelName, codexCliPath, codexHome, nodePath }
+      )
+    };
   } finally {
     await fs.rm(temporaryDir, { recursive: true, force: true });
   }
+}
+
+function managedRegistry({
+  channelName,
+  codexCliPath,
+  codexHome,
+  hostPath,
+  nodePath,
+  pluginRoot,
+  resourcesDir
+}) {
+  return {
+    schemaVersion: 2,
+    entries: [{
+      schemaVersion: 2,
+      appServerProtocolVersion: 2,
+      appVersion: "artifact-smoke",
+      channel: channelName,
+      cliVersion: "artifact-smoke",
+      entryId: smokeEntryId,
+      extensionBuildChannels: [channelName],
+      extensionIds: [extensionId],
+      installId: "linux-managed-smoke-install",
+      nativeHostNames: [nativeHostName],
+      nativeHostProtocolVersion: 2,
+      nativeHostVersion: "artifact-smoke",
+      paths: {
+        browserClientPath: path.join(pluginRoot, "scripts", "browser-client.mjs"),
+        codexCliPath,
+        codexHome,
+        extensionHostPath: hostPath,
+        nodePath,
+        nodeModuleDirs: [],
+        nodeReplPath: path.join(resourcesDir, "node_repl"),
+        resourcesPath: resourcesDir
+      },
+      presence: {
+        lastSeenAt: new Date().toISOString(),
+        pid: process.pid,
+        startedAt: new Date().toISOString()
+      },
+      proxyHost: "127.0.0.1",
+      proxyPort: 0,
+      updatedAt: new Date().toISOString()
+    }]
+  };
+}
+
+async function writeRegistry(registryPath, registry) {
+  await fs.mkdir(path.dirname(registryPath), { recursive: true });
+  await fs.writeFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
 }
 
 function nativeMessageFrame(message) {
@@ -185,6 +276,51 @@ export function evaluateLinuxChromeExtensionHostHello(message) {
   };
 }
 
+export function evaluateLinuxChromeExtensionHostEnsure(message, {
+  channelName,
+  codexCliPath,
+  codexHome,
+  nodePath
+}) {
+  if (message?.jsonrpc !== "2.0" || message?.id !== "smoke-ensure") {
+    throw new Error("Chrome extension host returned an unexpected ensure response ID");
+  }
+  if (message.error) {
+    throw new Error(`Chrome extension host ensure failed: ${JSON.stringify(message.error)}`);
+  }
+  const result = message.result;
+  let runtimeUrl;
+  try {
+    runtimeUrl = new URL(result?.localAppServerUrl);
+  } catch {
+    throw new Error("Chrome extension host returned an invalid app-server URL");
+  }
+  if (
+    result?.entryId !== smokeEntryId ||
+    typeof result?.runtimeSessionId !== "string" ||
+    result.runtimeSessionId.length === 0 ||
+    runtimeUrl.protocol !== "ws:" ||
+    !["127.0.0.1", "[::1]", "localhost"].includes(runtimeUrl.hostname) ||
+    !runtimeUrl.searchParams.has("token") ||
+    result?.selected?.appServerProtocolVersion !== 2 ||
+    result?.selected?.nativeHostProtocolVersion !== 2 ||
+    result?.selected?.channel !== channelName ||
+    result?.runtimeConfig?.platform !== "linux" ||
+    result?.runtimeConfig?.codexCliPath !== codexCliPath ||
+    result?.runtimeConfig?.codexHome !== codexHome ||
+    result?.runtimeConfig?.nodePath !== nodePath
+  ) {
+    throw new Error(
+      `Chrome extension host returned an incompatible managed runtime: ${JSON.stringify(result)}`
+    );
+  }
+  return {
+    channel: result.selected.channel,
+    entryId: result.entryId,
+    protocolVersion: result.selected.nativeHostProtocolVersion
+  };
+}
+
 function runFileType(hostPath) {
   return new Promise((resolve, reject) => {
     const child = spawn("file", ["-b", hostPath], {
@@ -207,10 +343,11 @@ function runFileType(hostPath) {
   });
 }
 
-function runNativeMessage(command, args, input) {
+function runNativeMessage(command, args, input, env = process.env) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: projectRoot,
+      env,
       stdio: ["pipe", "pipe", "pipe"]
     });
     const stdout = [];
@@ -237,17 +374,24 @@ function runNativeMessage(command, args, input) {
         return;
       }
       stdout.push(chunk);
+      const output = Buffer.concat(stdout);
+      if (output.length >= 4 && output.length >= output.readUInt32LE(0) + 4) {
+        child.stdin.end();
+      }
     });
     child.stderr.on("data", chunk => {
       stderr += chunk.toString();
     });
     child.on("error", fail);
+    child.stdin.on("error", error => {
+      if (error?.code !== "EPIPE") fail(error);
+    });
     child.on(
       "exit",
       finish(code => {
         resolve({ code, stdout: Buffer.concat(stdout), stderr });
       })
     );
-    child.stdin.end(input);
+    child.stdin.write(input);
   });
 }

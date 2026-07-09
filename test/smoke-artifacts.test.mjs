@@ -8,6 +8,7 @@ import {
 } from "../scripts/smoke-artifacts.mjs";
 import {
   evaluateLinuxChromeExtensionHostArtifact,
+  evaluateLinuxChromeExtensionHostEnsure,
   evaluateLinuxChromeExtensionHostHello,
   parseNativeMessageFrame
 } from "../scripts/lib/chrome-extension-smoke.mjs";
@@ -199,4 +200,45 @@ test("Chrome extension host smoke decodes and verifies the protocol-v2 hello", (
     /unexpected hello response ID/
   );
   assert.throws(() => parseNativeMessageFrame(frame.subarray(0, -1)), /truncated/);
+});
+
+test("Chrome extension host smoke verifies desktop-managed runtime selection", () => {
+  const message = {
+    jsonrpc: "2.0",
+    id: "smoke-ensure",
+    result: {
+      entryId: "linux-managed-smoke",
+      localAppServerUrl: "ws://127.0.0.1:4567/?token=secret",
+      runtimeSessionId: "session",
+      selected: {
+        appServerProtocolVersion: 2,
+        channel: "prod",
+        nativeHostProtocolVersion: 2
+      },
+      runtimeConfig: {
+        platform: "linux",
+        codexCliPath: "/opt/codex/resources/codex",
+        codexHome: "/tmp/codex-home",
+        nodePath: "/opt/codex/resources/node"
+      }
+    }
+  };
+
+  assert.deepEqual(
+    evaluateLinuxChromeExtensionHostEnsure(message, {
+      channelName: "prod",
+      codexCliPath: "/opt/codex/resources/codex",
+      codexHome: "/tmp/codex-home",
+      nodePath: "/opt/codex/resources/node"
+    }),
+    {
+      channel: "prod",
+      entryId: "linux-managed-smoke",
+      protocolVersion: 2
+    }
+  );
+  assert.throws(
+    () => evaluateLinuxChromeExtensionHostEnsure({ ...message, id: "wrong" }, {}),
+    /unexpected ensure response ID/
+  );
 });
