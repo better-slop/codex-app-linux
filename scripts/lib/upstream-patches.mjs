@@ -33,6 +33,8 @@ const dynamicToolSchemaContractMarker = "__codexLinuxDynamicToolSchemaContract";
 const dynamicToolStartResponseMarker = "__codexLinuxNormalizeDynamicToolsForThreadStart";
 const dynamicToolThreadStartRequestMarker = "__codexLinuxNormalizeThreadStartRequestParams";
 const dynamicToolThreadStartBridgeMarker = "__codexLinuxNormalizeThreadStartBridgeRequest";
+const chromeProfileRootResolverRegex =
+  /function ([A-Za-z_$][\w$]*)\(\{homeDir:([A-Za-z_$][\w$]*),localAppDataDir:([A-Za-z_$][\w$]*),platform:([A-Za-z_$][\w$]*)\}\)\{return \4===`darwin`\?(\(0,[A-Za-z_$][\w$]*\.join\)|[A-Za-z_$][\w$]*\.join)\(\2,`Library`,`Application Support`,`Google`,`Chrome`\):\4===`win32`\?\5\(\3\?\?\5\(\2,`AppData`,`Local`\),`Google`,`Chrome`,`User Data`\):/g;
 
 export class UpstreamPatchContractError extends Error {
   constructor(contractName, message, options = {}) {
@@ -58,6 +60,14 @@ export const dynamicToolThreadStartBridgeContract = {
   assertBefore: assertDynamicToolThreadStartBridgeBefore,
   apply: patchDynamicToolThreadStartBridge,
   assertAfter: assertDynamicToolThreadStartBridgeAfter
+};
+
+export const linuxChromeExtensionDetectionContract = {
+  name: "linux-chrome-extension-detection",
+  find: findLinuxChromeExtensionDetectionPatch,
+  assertBefore: assertLinuxChromeExtensionDetectionBefore,
+  apply: patchLinuxChromeExtensionDetection,
+  assertAfter: assertLinuxChromeExtensionDetectionAfter
 };
 
 export const upstreamPatchContracts = [
@@ -120,7 +130,13 @@ export const upstreamPatchContracts = [
   // Why: older launcher builds cached the same upstream Chrome plugin version
   // without a Linux native host. Upstream rewrites bundledContentVariant while
   // materializing the cache, so the Linux host revision must be composed there.
-  linuxChromeExtensionHostContentVariantContract
+  linuxChromeExtensionHostContentVariantContract,
+  // Why: upstream only searches Chrome profiles on macOS and Windows, which
+  // makes the official extension look absent on Linux. Without detection, the
+  // desktop never installs the Chrome plugin or writes its native manifest.
+  // Contract: the main bundle still resolves the Google Chrome profile root
+  // from homeDir, localAppDataDir, and platform.
+  linuxChromeExtensionDetectionContract
 ];
 
 export const owlFeatureBindingContract = {
@@ -183,6 +199,10 @@ export function patchDynamicToolStartResponseSource(source) {
 
 export function patchLinuxOpenTargetsSource(source) {
   return applyUpstreamPatchContract(source, upstreamPatchContracts[2]);
+}
+
+export function patchLinuxChromeExtensionDetectionSource(source) {
+  return applyUpstreamPatchContract(source, linuxChromeExtensionDetectionContract);
 }
 
 export function patchDisableTransparencySource(source) {
@@ -1480,6 +1500,58 @@ function isTrueExpression(node) {
     node.argument.type === "Literal" &&
     (node.argument.value === 0 || node.argument.value === false)
   );
+}
+
+function findLinuxChromeExtensionDetectionPatch(source) {
+  const matches = [...source.matchAll(chromeProfileRootResolverRegex)];
+
+  if (matches.length !== 1) {
+    throw new Error(`expected one Chrome profile root resolver, found ${matches.length}`);
+  }
+
+  const match = matches[0];
+  const homeDir = match[2];
+  const platform = match[4];
+  const join = match[5];
+  const start = match.index + match[0].length;
+  const linuxRoot = `${platform}===\`linux\`?${join}(${homeDir},\`.config\`,\`google-chrome\`):null`;
+
+  if (source.startsWith(`${linuxRoot}}`, start)) {
+    return { status: "patched" };
+  }
+
+  if (!source.startsWith("null}", start)) {
+    throw new Error("Chrome profile root resolver has an unknown fallback");
+  }
+
+  return {
+    status: "patch",
+    start,
+    end: start + "null".length,
+    replacement: linuxRoot
+  };
+}
+
+function patchLinuxChromeExtensionDetection(source) {
+  const patch = findLinuxChromeExtensionDetectionPatch(source);
+
+  if (patch.status === "patched") {
+    return source;
+  }
+
+  return source.slice(0, patch.start) + patch.replacement + source.slice(patch.end);
+}
+
+function assertLinuxChromeExtensionDetectionBefore(source) {
+  if (findLinuxChromeExtensionDetectionPatch(source).status !== "patch") {
+    throw new Error("Linux Chrome profile root is not patchable");
+  }
+}
+
+function assertLinuxChromeExtensionDetectionAfter(source) {
+  if (findLinuxChromeExtensionDetectionPatch(source).status !== "patched") {
+    throw new Error("Linux Chrome profile root assertion failed");
+  }
 }
 
 function parseJavaScript(source) {
