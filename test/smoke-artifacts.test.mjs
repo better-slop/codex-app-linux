@@ -4,11 +4,13 @@ import assert from "node:assert/strict";
 import {
   evaluateBundledCodexLauncherSource,
   evaluateDesktopBootResult,
-  evaluateLinuxChromeExtensionHostHello,
-  evaluateLinuxChromeExtensionHostArtifact,
-  evaluateLinuxWindowFocusableContractSources,
-  parseNativeMessageFrame
+  evaluateLinuxWindowFocusableContractSources
 } from "../scripts/smoke-artifacts.mjs";
+import {
+  evaluateLinuxChromeExtensionHostArtifact,
+  evaluateLinuxChromeExtensionHostHello,
+  parseNativeMessageFrame
+} from "../scripts/lib/chrome-extension-smoke.mjs";
 
 test("desktop boot smoke accepts a silent process still alive at timeout", () => {
   assert.deepEqual(
