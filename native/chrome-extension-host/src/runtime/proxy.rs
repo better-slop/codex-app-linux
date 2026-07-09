@@ -67,11 +67,16 @@ impl RuntimeSession {
             .env("CODEX_CLI_PATH", &config.codex_cli_path)
             .env("CODEX_EXTENSION_ID", &extension_id)
             .env("CODEX_BROWSER_USE_NODE_PATH", &config.node_path)
-            .env("CODEX_NODE_REPL_PATH", &config.node_repl_path)
             .env("CODEX_APP_SERVER_PROXY_HOST", address.ip().to_string())
             .env("CODEX_APP_SERVER_PROXY_PORT", address.port().to_string());
         if let Some(path) = &config.browser_client_path {
             command.env("CODEX_BROWSER_CLIENT_PATH", path);
+        }
+        if let Some(path) = &config.codex_home {
+            command.env("CODEX_HOME", path);
+        }
+        if let Some(path) = &config.node_repl_path {
+            command.env("CODEX_NODE_REPL_PATH", path);
         }
         let mut child = command.spawn().with_context(|| {
             format!(

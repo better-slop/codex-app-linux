@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use codex_chrome_extension_host::{
     assets::AssetStore,
-    config::HostConfig,
+    config::HostConfigSource,
     framing::read_frame,
     host::ProtocolHost,
     legacy::{LegacyBridge, spawn_chrome_writer},
@@ -18,8 +18,12 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    let config = Arc::new(HostConfig::load_adjacent_to_current_exe()?);
-    let extension_id = resolve_extension_id(&config)?;
+    let argument_id = extension_id_from_args();
+    let config_source = Arc::new(HostConfigSource::for_current_exe()?);
+    let extension_id = config_source.extension_id(argument_id)?;
+    if !is_extension_id(&extension_id) {
+        bail!("configured extensionId is invalid: {extension_id}");
+    }
     let (listener, socket_guard) = SocketGuard::bind()?;
     codex_chrome_extension_host::log(format_args!(
         "browser relay listening on {}",
@@ -28,7 +32,7 @@ fn run() -> Result<()> {
 
     let chrome_output = spawn_chrome_writer(io::stdout());
     let legacy = LegacyBridge::start(listener, chrome_output.clone(), Some(extension_id.clone()));
-    let runtime = RuntimeManager::new(Arc::clone(&config), extension_id);
+    let runtime = RuntimeManager::new(config_source, extension_id);
     let assets = AssetStore::from_environment()?;
     let mut protocol = ProtocolHost::new(runtime, assets);
 
@@ -50,23 +54,14 @@ fn run() -> Result<()> {
     Ok(())
 }
 
-fn resolve_extension_id(config: &HostConfig) -> Result<String> {
-    let argument_id = env::args().skip(1).find_map(|argument| {
+fn extension_id_from_args() -> Option<String> {
+    env::args().skip(1).find_map(|argument| {
         argument
             .strip_prefix("chrome-extension://")
             .and_then(|origin| origin.split('/').next())
             .filter(|value| is_extension_id(value))
             .map(ToString::to_string)
-    });
-    match (&config.extension_id, argument_id) {
-        (Some(configured), Some(argument)) if configured != &argument => {
-            bail!("Chrome origin extension ID {argument} does not match configured ID {configured}")
-        }
-        (Some(configured), _) if is_extension_id(configured) => Ok(configured.clone()),
-        (None, Some(argument)) => Ok(argument),
-        (Some(configured), _) => bail!("configured extensionId is invalid: {configured}"),
-        (None, None) => bail!("extensionId is missing from config and Chrome arguments"),
-    }
+    })
 }
 
 fn is_extension_id(value: &str) -> bool {

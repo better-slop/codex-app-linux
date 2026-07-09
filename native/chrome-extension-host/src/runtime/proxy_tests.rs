@@ -74,14 +74,21 @@ fn fixture() -> (PathBuf, HostConfig, PathBuf, PathBuf) {
     fs::set_permissions(&cli, fs::Permissions::from_mode(0o700)).unwrap();
     let config = HostConfig {
         schema_version: 1,
+        app_version: None,
         browser_client_path: Some(cli.clone()),
         channel: Some("prod".to_string()),
         codex_cli_path: cli.clone(),
+        codex_home: None,
+        cli_version: None,
+        entry_id: None,
         extension_id: Some(EXTENSION_ID.to_string()),
+        native_host_version: None,
+        node_module_dirs: Vec::new(),
         node_path: cli.clone(),
-        node_repl_path: cli,
+        node_repl_path: Some(cli),
         proxy_host: "127.0.0.1".to_string(),
         proxy_port: 0,
+        resources_path: None,
     };
     (root, config, initialize_count, process_count)
 }
