@@ -1,0 +1,23 @@
+[package]
+name = "codex-chrome-extension-host"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Linux native messaging host for the Codex Chrome extension"
+
+[dependencies]
+anyhow = "1.0.103"
+base64 = "0.22.1"
+libc = "0.2.186"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+sha2 = "0.11.0"
+tungstenite = { version = "0.29.0", default-features = false, features = ["handshake"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
+
