@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { parse } from "acorn";
 
+import { linuxChromeExtensionHostContentVariantContract } from "./chrome-extension-patches.mjs";
+
 const linuxOpenTargetDefinitions = ({ openCommandName, executableResolverName }) => [
   "var __codexLinuxOpenTargetGotoArgs=(e,t)=>t?[`--goto`,`${e}:${t.line}:${t.column}`]:[e]",
   "__codexLinuxOpenTargetColonArgs=(e,t)=>t?[`${e}:${t.line}:${t.column}`]:[e]",
@@ -114,7 +116,11 @@ export const upstreamPatchContracts = [
     assertBefore: assertLinuxWindowFocusableBefore,
     apply: patchLinuxWindowFocusable,
     assertAfter: assertLinuxWindowFocusableAfter
-  }
+  },
+  // Why: older launcher builds cached the same upstream Chrome plugin version
+  // without a Linux native host. Upstream rewrites bundledContentVariant while
+  // materializing the cache, so the Linux host revision must be composed there.
+  linuxChromeExtensionHostContentVariantContract
 ];
 
 export const owlFeatureBindingContract = {

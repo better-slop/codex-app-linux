@@ -18,6 +18,7 @@ import {
 } from "./config.mjs";
 import { patchUpstreamApp } from "./upstream-patches.mjs";
 import { writeAurPackage } from "./aur.mjs";
+import { stageLinuxChromeExtensionHost } from "./chrome-extension-host.mjs";
 
 const skippedLinuxResourceNames = new Set([
   "app.asar",
@@ -85,6 +86,7 @@ export async function buildChannel({
   ]);
   await patchUpstreamApp(paths.stageAppDir);
   await stagePackagedResources(appResourcesDir, paths.stageResourcesDir);
+  await stageLinuxChromeExtensionHost(paths.stageResourcesDir);
   await stageLinuxCodexCliRuntime(paths.stageResourcesDir);
   await stageLinuxNodeReplRuntime(paths.stageResourcesDir);
 

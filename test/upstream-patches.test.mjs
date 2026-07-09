@@ -186,7 +186,8 @@ test("upstream patch contracts declare required contract surface", () => {
       "open-target-dispatcher",
       "linux-window-background",
       "linux-window-transparency",
-      "linux-window-focusable-default"
+      "linux-window-focusable-default",
+      "linux-chrome-extension-host-content-variant"
     ]
   );
   assert.deepEqual(

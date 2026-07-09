@@ -59,6 +59,9 @@ export async function smokeLinuxArtifacts({
   await runCheck(summary, "linux-native-payloads", () =>
     assertNoForeignNativePayloads(linuxDir)
   );
+  await runCheck(summary, "chrome-extension-host", () =>
+    assertLinuxChromeExtensionHost(resourcesDir)
+  );
   await runCheck(summary, "node-runtime", () =>
     assertCommandSuccess(path.join(resourcesDir, "node"), ["--version"], {
       expectStdout: /^v\d+\.\d+\.\d+/
@@ -196,6 +199,53 @@ async function assertNoForeignNativePayloads(rootDir) {
 
   return {
     checked: checked.length
+  };
+}
+
+async function assertLinuxChromeExtensionHost(resourcesDir) {
+  const hostPath = path.join(
+    resourcesDir,
+    "plugins",
+    "openai-bundled",
+    "plugins",
+    "chrome",
+    "extension-host",
+    "linux",
+    "x64",
+    "extension-host"
+  );
+
+  await accessFile(hostPath, "Chrome extension host");
+  const [stat, fileResult] = await Promise.all([
+    fs.stat(hostPath),
+    runCommand("file", ["-b", hostPath], { capture: true })
+  ]);
+  const artifact = evaluateLinuxChromeExtensionHostArtifact({
+    fileType: fileResult.stdout.trim(),
+    mode: stat.mode & 0o777
+  });
+
+  return {
+    path: path.relative(resourcesDir, hostPath),
+    ...artifact
+  };
+}
+
+export function evaluateLinuxChromeExtensionHostArtifact({ fileType, mode }) {
+  if ((mode & 0o111) === 0) {
+    throw new Error(`Chrome extension host must be executable (mode ${mode.toString(8)})`);
+  }
+  if (!/\bELF\b/.test(fileType) || !/\bx86-64\b/.test(fileType)) {
+    throw new Error(`Chrome extension host must be a Linux x86-64 ELF: ${fileType}`);
+  }
+  if (!/\b(?:static-pie|statically) linked\b/i.test(fileType)) {
+    throw new Error(`Chrome extension host must be statically linked: ${fileType}`);
+  }
+
+  return {
+    executable: true,
+    static: true,
+    architecture: "x86-64"
   };
 }
 
