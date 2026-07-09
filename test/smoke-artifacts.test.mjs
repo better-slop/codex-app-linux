@@ -4,8 +4,10 @@ import assert from "node:assert/strict";
 import {
   evaluateBundledCodexLauncherSource,
   evaluateDesktopBootResult,
+  evaluateLinuxChromeExtensionHostHello,
   evaluateLinuxChromeExtensionHostArtifact,
-  evaluateLinuxWindowFocusableContractSources
+  evaluateLinuxWindowFocusableContractSources,
+  parseNativeMessageFrame
 } from "../scripts/smoke-artifacts.mjs";
 
 test("desktop boot smoke accepts a silent process still alive at timeout", () => {
@@ -166,4 +168,33 @@ test("Chrome extension host smoke rejects dynamic and non-executable hosts", () 
       }),
     /must be executable/
   );
+});
+
+test("Chrome extension host smoke decodes and verifies the protocol-v2 hello", () => {
+  const message = {
+    jsonrpc: "2.0",
+    id: "smoke-hello",
+    result: {
+      manifestSchemaVersion: 2,
+      nativeHostProtocolVersion: 2,
+      nativeHostVersion: "0.1.0",
+      supportedProtocolVersions: [2],
+      supportedMethods: ["codexRuntime/openLocalFile"]
+    }
+  };
+  const body = Buffer.from(JSON.stringify(message));
+  const frame = Buffer.alloc(4 + body.length);
+  frame.writeUInt32LE(body.length);
+  body.copy(frame, 4);
+
+  assert.deepEqual(parseNativeMessageFrame(frame), message);
+  assert.deepEqual(evaluateLinuxChromeExtensionHostHello(message), {
+    protocolVersion: 2,
+    version: "0.1.0"
+  });
+  assert.throws(
+    () => evaluateLinuxChromeExtensionHostHello({ ...message, id: "wrong" }),
+    /unexpected hello response ID/
+  );
+  assert.throws(() => parseNativeMessageFrame(frame.subarray(0, -1)), /truncated/);
 });
