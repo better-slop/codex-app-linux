@@ -22,11 +22,17 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Install Rust target
+        run: rustup target add x86_64-unknown-linux-musl
+
       - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y p7zip-full jq libarchive-tools xvfb x11-utils
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full jq libarchive-tools musl-tools xvfb x11-utils
 
       - name: Install repo deps
         run: npm ci
+
+      - name: Run tests
+        run: npm test
 
       - name: Install browser deps
         run: npx playwright install --with-deps chromium

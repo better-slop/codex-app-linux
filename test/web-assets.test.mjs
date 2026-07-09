@@ -116,8 +116,10 @@ test("createAppHostModuleBody resolves RPC peer constructor semantically", () =>
   );
 
   assert.match(body, /const rpcModulePromise = import/);
+  assert.match(body, /const functionToString = Function\.prototype\.toString;\s+const rpcModulePromise = import/);
   assert.match(body, /\[rpcModule\.tC, rpcModule\.V, rpcModule\.E, \.\.\.Object\.values\(rpcModule\)\]\.find/);
-  assert.match(body, /getRemoteMain/);
+  assert.match(body, /functionToString\.call\(value\)\.includes\("getRemoteMain"\)/);
+  assert.doesNotMatch(body, /Function\.prototype\.toString\.call\(value\)/);
   assert.doesNotMatch(body, /import \{ E as createRpcPeer \}/);
 });
 

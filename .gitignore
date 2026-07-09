@@ -5,3 +5,4 @@ dist
 stage
 tmp
 .env
+/native/chrome-extension-host/target/

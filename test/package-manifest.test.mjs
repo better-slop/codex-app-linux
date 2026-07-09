@@ -14,7 +14,12 @@ test("repo package manifest matches publisher toolchain", async () => {
   assert.equal(manifest.name, "codex-app-linux-publisher");
   assert.equal(manifest.private, true);
   assert.equal(manifest.type, "module");
-  assert.equal(manifest.scripts.test, "node --test");
+  assert.equal(manifest.scripts.test, "npm run test:node && npm run test:host");
+  assert.equal(manifest.scripts["test:node"], "node --test test/*.test.mjs");
+  assert.equal(
+    manifest.scripts["test:host"],
+    "cargo test --locked --manifest-path native/chrome-extension-host/Cargo.toml"
+  );
   assert.equal(manifest.scripts["release:prod"], "node scripts/release-channel.mjs --channel prod");
   assert.equal(manifest.scripts["release:beta"], "node scripts/release-channel.mjs --channel beta");
   assert.equal(manifest.devDependencies.electron, "42.1.0");

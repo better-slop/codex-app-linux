@@ -18,11 +18,14 @@ import {
 } from "./config.mjs";
 import { patchUpstreamApp } from "./upstream-patches.mjs";
 import { writeAurPackage } from "./aur.mjs";
+import { stageLinuxChromeExtensionHost } from "./chrome-extension-host.mjs";
+import { patchLinuxChromePluginResources } from "./chrome-plugin-patches.mjs";
 
 const skippedLinuxResourceNames = new Set([
   "app.asar",
   "app.asar.unpacked",
   "codex",
+  "codex-code-mode-host",
   "codex_chronicle",
   "cua_node",
   "native",
@@ -85,6 +88,8 @@ export async function buildChannel({
   ]);
   await patchUpstreamApp(paths.stageAppDir);
   await stagePackagedResources(appResourcesDir, paths.stageResourcesDir);
+  await patchLinuxChromePluginResources(paths.stageResourcesDir);
+  await stageLinuxChromeExtensionHost(paths.stageResourcesDir);
   await stageLinuxCodexCliRuntime(paths.stageResourcesDir);
   await stageLinuxNodeReplRuntime(paths.stageResourcesDir);
 

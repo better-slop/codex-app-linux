@@ -91,6 +91,10 @@ test("stagePackagedResources preserves Linux-safe upstream resources", async () 
     "mach-o-arm64"
   );
   await fs.writeFile(path.join(resourcesDir, "codex"), "darwin-codex");
+  await fs.writeFile(
+    path.join(resourcesDir, "codex-code-mode-host"),
+    "darwin-code-mode-host"
+  );
   await fs.mkdir(path.join(resourcesDir, "cua_node", "bin"), { recursive: true });
   await fs.writeFile(path.join(resourcesDir, "cua_node", "bin", "node_repl"), "darwin-node-repl");
   await fs.writeFile(path.join(resourcesDir, "node"), "darwin-node");
@@ -104,6 +108,7 @@ test("stagePackagedResources preserves Linux-safe upstream resources", async () 
   await assert.rejects(fs.access(path.join(targetDir, "app.asar")));
   await assert.rejects(fs.access(path.join(targetDir, "app.asar.unpacked")));
   await assert.rejects(fs.access(path.join(targetDir, "codex")));
+  await assert.rejects(fs.access(path.join(targetDir, "codex-code-mode-host")));
   await assert.rejects(fs.access(path.join(targetDir, "cua_node")));
   await assert.rejects(fs.access(path.join(targetDir, "node")));
   await assert.rejects(fs.access(path.join(targetDir, "rg")));

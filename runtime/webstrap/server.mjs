@@ -501,6 +501,9 @@ export function createAppHostModuleBody(rpcModulePath, webRoot) {
   const rpcModuleUrl = `/${path.relative(webRoot, rpcModulePath).split(path.sep).join("/")}`;
 
   return `
+// Importing the upstream bundle can patch Function.prototype.toString. Keep the
+// browser's native method so semantic export discovery remains deterministic.
+const functionToString = Function.prototype.toString;
 const rpcModulePromise = import(${JSON.stringify(rpcModuleUrl)});
 
 function resolveCreateRpcPeer(rpcModule) {
@@ -509,7 +512,7 @@ function resolveCreateRpcPeer(rpcModule) {
     return false;
   }
 
-  return Function.prototype.toString.call(value).includes("getRemoteMain");
+  return functionToString.call(value).includes("getRemoteMain");
   });
 }
 
