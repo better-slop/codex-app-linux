@@ -13,6 +13,7 @@ import {
 const execFileAsync = promisify(execFile);
 const crateDir = path.join(projectRoot, "native", "chrome-extension-host");
 const defaultCargoTargetDir = path.join(cacheRoot, "chrome-extension-host-target");
+const defaultLicensePath = path.join(crateDir, "LICENSES", "ilysenko-MIT.txt");
 
 export { CHROME_EXTENSION_HOST_CONTENT_VARIANT };
 
@@ -60,7 +61,7 @@ export async function buildLinuxChromeExtensionHost({
  */
 export async function stageLinuxChromeExtensionHost(
   resourcesDir,
-  { sourcePath } = {}
+  { sourcePath, licensePath = defaultLicensePath } = {}
 ) {
   const pluginRoot = chromePluginRoot(resourcesDir);
 
@@ -77,8 +78,15 @@ export async function stageLinuxChromeExtensionHost(
     "extension-host"
   );
   const temporaryPath = `${targetPath}.installing-${process.pid}`;
+  const targetLicensePath = path.join(
+    pluginRoot,
+    "extension-host",
+    "linux",
+    "LICENSE.ilysenko-MIT.txt"
+  );
 
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
+  await fs.copyFile(licensePath, targetLicensePath);
   try {
     await fs.copyFile(hostSource, temporaryPath);
     await fs.chmod(temporaryPath, 0o755);
