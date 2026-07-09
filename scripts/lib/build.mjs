@@ -23,6 +23,7 @@ const skippedLinuxResourceNames = new Set([
   "app.asar",
   "app.asar.unpacked",
   "codex",
+  "codex-code-mode-host",
   "codex_chronicle",
   "cua_node",
   "native",
