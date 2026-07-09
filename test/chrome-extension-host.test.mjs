@@ -34,6 +34,13 @@ test("stageLinuxChromeExtensionHost installs the project host over an empty upst
   );
   assert.deepEqual(await fs.readFile(installedPath), await fs.readFile(sourcePath));
   assert.equal((await fs.stat(installedPath)).mode & 0o777, 0o755);
+  assert.match(
+    await fs.readFile(
+      path.join(pluginDir, "extension-host", "linux", "LICENSE.ilysenko-MIT.txt"),
+      "utf8"
+    ),
+    /MIT License/
+  );
 });
 
 test("stageLinuxChromeExtensionHost replaces an untrusted upstream Linux host", async () => {
