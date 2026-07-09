@@ -118,6 +118,9 @@ impl RuntimeSession {
     }
 
     pub fn is_alive(&self) -> Result<bool> {
+        if !self.broker.is_healthy() {
+            return Ok(false);
+        }
         let mut child = self
             .child
             .lock()

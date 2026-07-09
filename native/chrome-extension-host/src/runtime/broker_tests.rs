@@ -131,3 +131,11 @@ fn full_client_queue_disconnects_and_returns_an_error() {
     assert!(error.to_string().contains("overloaded"));
     assert_eq!(broker.client_count(), 0);
 }
+#[test]
+fn broker_health_can_invalidate_an_alive_child_process() {
+    let (child, _receiver) = mpsc::sync_channel(1);
+    let broker = Broker::new(child);
+    assert!(broker.is_healthy());
+    broker.mark_unhealthy();
+    assert!(!broker.is_healthy());
+}

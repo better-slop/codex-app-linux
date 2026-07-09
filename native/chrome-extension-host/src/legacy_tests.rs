@@ -129,6 +129,17 @@ fn chrome_request_and_client_response_restore_original_id() {
 }
 
 #[test]
+fn browser_connection_limit_releases_capacity_on_drop() {
+    let active = Arc::new(AtomicUsize::new(0));
+    let permits = (0..MAX_CLIENT_CONNECTIONS)
+        .map(|_| ConnectionPermit::acquire(Arc::clone(&active)).unwrap())
+        .collect::<Vec<_>>();
+    assert!(ConnectionPermit::acquire(Arc::clone(&active)).is_none());
+    drop(permits);
+    assert!(ConnectionPermit::acquire(active).is_some());
+}
+
+#[test]
 fn bounded_legacy_queues_deliver_bursts_without_silent_drops() {
     let (bridge, chrome_messages, _client_output, client_messages) = bridge();
     let client_reader = std::thread::spawn(move || {

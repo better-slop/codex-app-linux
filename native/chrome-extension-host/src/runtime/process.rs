@@ -68,11 +68,17 @@ pub(super) fn spawn_stdout_reader(stdout: impl Read + Send + 'static, broker: Ar
                         }
                         Err(error) => {
                             crate::log(format_args!("app-server emitted invalid JSON: {error}"));
+                            broker.mark_unhealthy();
+                            break;
                         }
                     },
-                    Ok(None) => break,
+                    Ok(None) => {
+                        broker.mark_unhealthy();
+                        break;
+                    }
                     Err(error) => {
                         crate::log(format_args!("app-server stdout failed: {error}"));
+                        broker.mark_unhealthy();
                         break;
                     }
                 }

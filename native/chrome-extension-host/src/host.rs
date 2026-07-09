@@ -2,6 +2,9 @@ use crate::{assets::AssetStore, open_file::open_local_file, rpc, runtime::Runtim
 use serde_json::{Value, json};
 use std::path::Path;
 
+const MAX_ERROR_MESSAGE_BYTES: usize = 4 * 1024;
+const TRUNCATED_SUFFIX: &str = "...[truncated]";
+
 pub struct ProtocolHost {
     runtime: RuntimeManager,
     assets: AssetStore,
@@ -24,7 +27,7 @@ impl ProtocolHost {
         match self.handle_result(message) {
             Ok(result) => rpc::result(id, result),
             Err(error) => {
-                let text = error.to_string();
+                let text = bounded_error_text(&error.to_string());
                 if text.starts_with("method not found:") {
                     return rpc::error(id, rpc::METHOD_NOT_FOUND, text);
                 }
@@ -93,6 +96,18 @@ impl ProtocolHost {
     }
 }
 
+fn bounded_error_text(message: &str) -> String {
+    if message.len() <= MAX_ERROR_MESSAGE_BYTES {
+        return message.to_string();
+    }
+    let maximum_prefix = MAX_ERROR_MESSAGE_BYTES - TRUNCATED_SUFFIX.len();
+    let mut end = maximum_prefix;
+    while !message.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}{}", &message[..end], TRUNCATED_SUFFIX)
+}
+
 fn required_string<'a>(params: &'a Value, field: &str) -> anyhow::Result<&'a str> {
     params
         .get(field)
@@ -122,5 +137,13 @@ mod tests {
         );
         assert!(required_string(&json!({"path":""}), "path").is_err());
         assert!(required_string(&json!({"path":1}), "path").is_err());
+    }
+
+    #[test]
+    fn native_error_messages_are_bounded_for_chrome_output() {
+        let oversized = "x".repeat(16 * 1024);
+        let bounded = bounded_error_text(&oversized);
+        assert!(bounded.len() <= MAX_ERROR_MESSAGE_BYTES);
+        assert!(bounded.ends_with("...[truncated]"));
     }
 }

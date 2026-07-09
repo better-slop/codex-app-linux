@@ -20,6 +20,7 @@ pub(super) const DEFAULT_CLIENT_ID: &str = "default";
 pub(super) struct Broker {
     state: Mutex<State>,
     child_input: SyncSender<Value>,
+    healthy: AtomicBool,
 }
 
 struct State {
@@ -77,7 +78,16 @@ impl Broker {
                 next_request: 1,
             }),
             child_input,
+            healthy: AtomicBool::new(true),
         }
+    }
+
+    pub fn is_healthy(&self) -> bool {
+        self.healthy.load(Ordering::Acquire)
+    }
+
+    pub fn mark_unhealthy(&self) {
+        self.healthy.store(false, Ordering::Release);
     }
 
     pub fn register(&self, client_id: String) -> Result<ClientConnection> {
