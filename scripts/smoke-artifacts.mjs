@@ -777,7 +777,7 @@ async function smokeBrowserPage(url) {
       const splashOnly = body?.children.length <= 2 && document.querySelector("svg") && text.trim().length < 20;
 
       return Boolean(interactive) || (text.trim().length > 20 && !splashOnly);
-    }, {
+    }, undefined, {
       timeout: 45_000
     });
 
