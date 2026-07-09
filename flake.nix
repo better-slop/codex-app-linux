@@ -12,7 +12,7 @@
         pkgs = import nixpkgs { inherit system; };
         releaseProd = pkgs.writeShellApplication {
           name = "release-prod";
-          runtimeInputs = with pkgs; [ nodejs_24 p7zip libarchive gnutar ];
+          runtimeInputs = with pkgs; [ nodejs_24 p7zip libarchive gnutar rustup ];
           text = ''
             cd ${self}
             exec node scripts/release-channel.mjs --channel prod "$@"
@@ -20,7 +20,7 @@
         };
         releaseBeta = pkgs.writeShellApplication {
           name = "release-beta";
-          runtimeInputs = with pkgs; [ nodejs_24 p7zip libarchive gnutar ];
+          runtimeInputs = with pkgs; [ nodejs_24 p7zip libarchive gnutar rustup ];
           text = ''
             cd ${self}
             exec node scripts/release-channel.mjs --channel beta "$@"
@@ -48,6 +48,7 @@
             p7zip
             libarchive
             gnutar
+            rustup
           ];
         };
       });
