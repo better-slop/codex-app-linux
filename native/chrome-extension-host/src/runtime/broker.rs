@@ -1,3 +1,4 @@
+use crate::rpc::{self, is_response, replace_id};
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use std::{
@@ -399,7 +400,7 @@ impl Broker {
         for waiter in waiters {
             let message = json!({
                 "id": waiter.original_id,
-                "error": {"code": -32603, "message": reason}
+                "error": {"code": rpc::INTERNAL_ERROR, "message": reason}
             });
             let _ = self.send_to_client(&waiter, message);
         }
@@ -471,17 +472,6 @@ pub(super) fn validate_client_id(client_id: &str) -> Result<()> {
         bail!("clientId contains unsupported characters");
     }
     Ok(())
-}
-
-fn is_response(message: &Value) -> bool {
-    message.get("id").is_some() && message.get("method").is_none()
-}
-
-fn replace_id(mut message: Value, id: Value) -> Value {
-    if let Some(object) = message.as_object_mut() {
-        object.insert("id".to_string(), id);
-    }
-    message
 }
 
 #[cfg(test)]
