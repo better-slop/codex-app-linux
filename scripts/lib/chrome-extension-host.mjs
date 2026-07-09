@@ -9,6 +9,7 @@ import {
   CHROME_EXTENSION_HOST_CONTENT_VARIANT,
   CHROME_EXTENSION_HOST_TARGET
 } from "./chrome-extension-constants.mjs";
+import { writeRustDependencyLicenses } from "./rust-dependency-licenses.mjs";
 
 const execFileAsync = promisify(execFile);
 const crateDir = path.join(projectRoot, "native", "chrome-extension-host");
@@ -95,10 +96,17 @@ export async function stageLinuxChromeExtensionHost(
     "linux",
     "THIRD_PARTY_NOTICES.md"
   );
+  const targetRustLicensesPath = path.join(
+    pluginRoot,
+    "extension-host",
+    "linux",
+    "RUST_DEPENDENCY_LICENSES.md"
+  );
 
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
   await fs.copyFile(licensePath, targetLicensePath);
   await fs.copyFile(noticesPath, targetNoticesPath);
+  await writeRustDependencyLicenses(targetRustLicensesPath);
   try {
     await fs.copyFile(hostSource, temporaryPath);
     await fs.chmod(temporaryPath, 0o755);
