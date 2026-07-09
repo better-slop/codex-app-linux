@@ -90,5 +90,5 @@ test("stageLinuxChromeExtensionHost fails closed when the Chrome plugin layout d
 });
 
 test("Linux host cache revision is explicit and stable", () => {
-  assert.equal(CHROME_EXTENSION_HOST_CONTENT_VARIANT, "linux-extension-host-v2");
+  assert.equal(CHROME_EXTENSION_HOST_CONTENT_VARIANT, "linux-extension-host-v3");
 });
