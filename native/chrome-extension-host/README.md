@@ -9,16 +9,19 @@ protocol-v2 runtime methods on Linux:
 - stores bounded tab-context assets under the system temporary directory;
 - validates local files before opening them with xdg-open.
 
-The host reads extension-host-config.json beside its executable. The installer
-already writes that schema. The Browser Use relay continues to use
-/tmp/codex-browser-use by default; CODEX_BROWSER_USE_SOCKET_DIR overrides it.
+The desktop-managed host resolves registry-v2 on every runtime request, first
+from `$XDG_STATE_HOME/openai-codex/chrome-native-hosts-v2.json`, then from
+`$CODEX_HOME/chrome-native-hosts-v2.json`. The adjacent
+`extension-host-config.json` schema remains the same installer fallback used by
+the Darwin host. The Browser Use relay uses `/tmp/codex-browser-use` by default;
+`CODEX_BROWSER_USE_SOCKET_DIR` overrides it.
 
 ## Build and verify
 
     cargo test
     cargo clippy --all-targets -- -D warnings
     cargo build --release --target x86_64-unknown-linux-musl
-    cargo build --release --target aarch64-unknown-linux-musl
 
 The release profile strips and LTO-optimizes static binaries suitable for Linux
-x86-64 and arm64 distributions. See THIRD_PARTY_NOTICES.md for relay provenance.
+x86-64 distributions. See `THIRD_PARTY_NOTICES.md` for relay provenance and the
+packaged `RUST_DEPENDENCY_LICENSES.md` for the complete Cargo dependency notices.

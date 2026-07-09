@@ -208,6 +208,8 @@ fn rank_raw(value: Value, executable: &Path, request: ConfigRequest<'_>) -> Opti
             .and_then(Value::as_array)
             .is_some_and(|values| values.iter().any(|value| value.as_str() == Some(expected)))
     };
+    // Exact Darwin precedence: executable +100, host +50, extension +25,
+    // channel +10, positive presence PID +1; updatedAt breaks score ties.
     let mut score = 0_u64;
     if paths
         .get("extensionHostPath")
