@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 
 import {
   hasLinuxChromeExtensionHostContentVariant,
+  linuxChromeExtensionHostContentVariantContract,
   patchLinuxChromeExtensionHostContentVariant
 } from "../scripts/lib/chrome-extension-patches.mjs";
+import { applyUpstreamPatchContract } from "../scripts/lib/upstream-patches.mjs";
 
 const upstreamMaterializer = [
   "async function Za(e){",
@@ -29,6 +31,18 @@ test("patchLinuxChromeExtensionHostContentVariant is idempotent", () => {
   const patched = patchLinuxChromeExtensionHostContentVariant(upstreamMaterializer);
 
   assert.equal(patchLinuxChromeExtensionHostContentVariant(patched), patched);
+});
+
+test("content-variant contract runner accepts an already patched bundle", () => {
+  const patched = applyUpstreamPatchContract(
+    upstreamMaterializer,
+    linuxChromeExtensionHostContentVariantContract
+  );
+
+  assert.equal(
+    applyUpstreamPatchContract(patched, linuxChromeExtensionHostContentVariantContract),
+    patched
+  );
 });
 
 test("patchLinuxChromeExtensionHostContentVariant fails on upstream contract drift", () => {
