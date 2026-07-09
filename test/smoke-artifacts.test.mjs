@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import {
   evaluateBundledCodexLauncherSource,
   evaluateDesktopBootResult,
-  evaluateLinuxWindowFocusableContractSources
+  evaluateLinuxWindowFocusableContractSources,
+  runCommandForTest
 } from "../scripts/smoke-artifacts.mjs";
 import {
   evaluateLinuxChromeExtensionHostArtifact,
@@ -65,6 +66,20 @@ test("desktop boot smoke rejects native failed-start dialogs", () => {
     }),
     /desktop binary showed startup failure dialog/
   );
+});
+
+test("timed-out smoke commands terminate descendants holding stdio open", {
+  skip: process.platform === "win32"
+}, async () => {
+  const startedAt = Date.now();
+  const result = await runCommandForTest(
+    process.execPath,
+    [new URL("fixtures/hold-stdio-open.mjs", import.meta.url).pathname],
+    { allowTimeout: true, capture: true, timeoutMs: 100 }
+  );
+
+  assert.equal(result.timedOut, true);
+  assert.ok(Date.now() - startedAt < 2000);
 });
 
 test("bundled Codex launcher smoke rejects PATH-first wrappers", () => {

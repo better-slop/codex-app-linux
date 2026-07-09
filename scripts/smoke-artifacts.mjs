@@ -895,6 +895,7 @@ function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: projectRoot,
+      detached: process.platform !== "win32",
       env,
       stdio: capture ? ["pipe", "pipe", "pipe"] : "inherit"
     });
@@ -902,10 +903,13 @@ function runCommand(command, args, options = {}) {
     let stderr = "";
     let timedOut = false;
     let timeoutMetadata = {};
+    let forceKillTimer;
     const timer = setTimeout(() => {
       timedOut = true;
       timeoutMetadata = onTimeout?.() || {};
-      child.kill("SIGTERM");
+      signalProcessTree(child, "SIGTERM");
+      forceKillTimer = setTimeout(() => signalProcessTree(child, "SIGKILL"), 2000);
+      forceKillTimer.unref();
     }, timeoutMs);
 
     child.stdout?.on("data", chunk => {
@@ -916,10 +920,16 @@ function runCommand(command, args, options = {}) {
     });
     child.on("error", error => {
       clearTimeout(timer);
+      clearTimeout(forceKillTimer);
       reject(error);
     });
     child.on("exit", code => {
       clearTimeout(timer);
+      clearTimeout(forceKillTimer);
+      if (timedOut) signalProcessTree(child, "SIGKILL");
+      child.stdin?.destroy();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
 
       if (timedOut && !allowTimeout) {
         reject(new Error(`${command} timed out after ${timeoutMs}ms`));
@@ -939,6 +949,24 @@ function runCommand(command, args, options = {}) {
       child.stdin?.end(input);
     }
   });
+}
+
+export function runCommandForTest(command, args, options) {
+  return runCommand(command, args, options);
+}
+
+function signalProcessTree(child, signal) {
+  if (child.pid == null) return false;
+  try {
+    if (process.platform !== "win32") {
+      process.kill(-child.pid, signal);
+      return true;
+    }
+    return child.kill(signal);
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    throw error;
+  }
 }
 
 function readX11WindowTree() {
