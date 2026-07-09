@@ -12,12 +12,10 @@ const materializerSignals = [
 
 export const linuxChromeExtensionHostContentVariantContract = {
   name: "linux-chrome-extension-host-content-variant",
-  find: findContentVariantMaterializer,
+  find: findContentVariantContract,
   assertBefore(source) {
-    if (hasLinuxChromeExtensionHostContentVariant(source)) {
-      throw new Error("Linux Chrome content variant is already present");
-    }
-    findContentVariantMaterializer(source);
+    const match = findContentVariantContract(source);
+    if (match.status !== "patch") throw new Error("Linux Chrome content variant is already present");
   },
   apply: patchLinuxChromeExtensionHostContentVariant,
   assertAfter(source) {
@@ -26,6 +24,13 @@ export const linuxChromeExtensionHostContentVariantContract = {
     }
   }
 };
+
+function findContentVariantContract(source) {
+  if (hasLinuxChromeExtensionHostContentVariant(source)) {
+    return { status: "patched" };
+  }
+  return { status: "patch", ...findContentVariantMaterializer(source) };
+}
 
 /**
  * Upstream rewrites bundledContentVariant immediately before materializing a
