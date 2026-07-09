@@ -8,7 +8,9 @@
   "scripts": {
     "canary": "node scripts/canary.mjs",
     "smoke": "node scripts/smoke-artifacts.mjs",
-    "test": "node --test",
+    "test": "npm run test:node && npm run test:host",
+    "test:node": "node --test",
+    "test:host": "cargo test --locked --manifest-path native/chrome-extension-host/Cargo.toml",
     "release:prod": "node scripts/release-channel.mjs --channel prod",
     "release:beta": "node scripts/release-channel.mjs --channel beta"
   },
