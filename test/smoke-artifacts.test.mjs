@@ -74,7 +74,13 @@ test("timed-out smoke commands terminate descendants holding stdio open", {
   const startedAt = Date.now();
   const result = await runCommandForTest(
     process.execPath,
-    [new URL("fixtures/hold-stdio-open.mjs", import.meta.url).pathname],
+    [
+      "-e",
+      `require("node:child_process").spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)"], {
+        stdio: ["ignore", "inherit", "inherit"]
+      });
+      setInterval(() => {}, 60000);`
+    ],
     { allowTimeout: true, capture: true, timeoutMs: 100 }
   );
 
