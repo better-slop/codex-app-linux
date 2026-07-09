@@ -41,6 +41,13 @@ test("stageLinuxChromeExtensionHost installs the project host over an empty upst
     ),
     /MIT License/
   );
+  assert.match(
+    await fs.readFile(
+      path.join(pluginDir, "extension-host", "linux", "THIRD_PARTY_NOTICES.md"),
+      "utf8"
+    ),
+    /ddcd9b559274abc7d4c8ae8ba54813a8acbcb982/
+  );
 });
 
 test("stageLinuxChromeExtensionHost replaces an untrusted upstream Linux host", async () => {
