@@ -45,10 +45,10 @@ const primaryRuntime = {
 const codexCliRuntime = {
   url:
     process.env.CODEX_CLI_RUNTIME_URL ||
-    "https://github.com/openai/codex/releases/download/rust-v0.140.0/codex-package-x86_64-unknown-linux-musl.tar.gz",
+    "https://github.com/openai/codex/releases/download/rust-v0.144.1/codex-package-x86_64-unknown-linux-musl.tar.gz",
   sha256:
     process.env.CODEX_CLI_RUNTIME_SHA256 ||
-    "9620e798900c6fb289199a9e0a8ed0c3a8cb7e3561048498ebc2dac354a1627b",
+    "3fd50cf96809b1eea294bbfba0a5c3a576871b4876a1f0e91226e520c1923be1",
   codexEntry: "bin/codex"
 };
 
