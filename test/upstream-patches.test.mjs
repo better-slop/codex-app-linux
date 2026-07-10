@@ -30,6 +30,25 @@ const openTargetResolverSource =
   "function W(e){let t=which.default.sync(e,{nothrow:!0});return typeof t==`string`&&fs.existsSync(t)?t:null}";
 const withOpenTargetResolver = parts => [openTargetResolverSource, ...parts].join(";");
 
+function assertCanonicalDynamicTools(tools) {
+  for (const tool of tools) {
+    assert.equal(typeof tool.description, "string");
+    assert.equal("namespace" in tool, false);
+    assert.equal("exposeToContext" in tool, false);
+    assert.equal("input_schema" in tool, false);
+    assert.equal("parameters" in tool, false);
+
+    if (tool.type === "namespace") {
+      assert.equal(Array.isArray(tool.tools), true);
+      assertCanonicalDynamicTools(tool.tools);
+      continue;
+    }
+
+    assert.equal(tool.type, "function");
+    assert.equal(tool.inputSchema?.type, "object");
+  }
+}
+
 test("patchLinuxOpenTargetsSource adds Linux editor targets and exposes app paths", () => {
   const source = withOpenTargetResolver([
     "prefix",
@@ -461,11 +480,15 @@ test("patchDynamicToolStartResponseSource normalizes desktop thread-start dynami
 
   vm.runInNewContext(patched, context);
 
-  const tools = context.globalThis.result[0].tools;
+  const dynamicTools = context.globalThis.result;
+  const tools = dynamicTools[0].tools;
 
   assert.equal(hasUnguardedDynamicToolStartResponseSource(patched), false);
-  assert.equal(JSON.stringify(tools.map(tool => tool.name)), JSON.stringify(["good", "snake", "params", "untouched"]));
+  assert.equal(dynamicTools[0].type, "namespace");
+  assert.equal(dynamicTools[0].name, "codex_app");
+  assert.equal(JSON.stringify(tools.map(tool => tool.name)), JSON.stringify(["good", "snake", "params"]));
   assert.equal(tools.filter(tool => tool.type === "function").every(tool => tool.inputSchema?.type === "object"), true);
+  assertCanonicalDynamicTools(dynamicTools);
 });
 
 test("patchDynamicToolStartResponseSource is idempotent", () => {
@@ -497,15 +520,14 @@ test("patchDynamicToolThreadStartBridgeSource normalizes final Electron bridge r
   await vm.runInNewContext(`(async()=>{${patched}})()`, context);
 
   const [normal, prewarm] = context.globalThis.bridge.requests;
-  const tools = normal.params.dynamicTools;
+  const dynamicTools = normal.params.dynamicTools;
+  const tools = dynamicTools[0].tools;
 
   assert.equal(hasUnguardedDynamicToolThreadStartBridgeSource(patched), false);
-  assert.equal(JSON.stringify(tools.map(tool => tool.name)), JSON.stringify(["good", "plainSnake", "plainParams", "bad", "top", "topBad"]));
-  assert.equal(tools.every(tool => tool.type === "function"), true);
-  assert.equal(tools.every(tool => tool.inputSchema?.type === "object"), true);
-  assert.equal(tools.slice(0, 4).every(tool => tool.namespace === "codex_app"), true);
-  assert.equal(tools.slice(4).every(tool => tool.namespace == null), true);
-  assert.deepEqual(prewarm.params.dynamicTools, tools);
+  assert.equal(JSON.stringify(tools.map(tool => tool.name)), JSON.stringify(["good", "plainSnake", "plainParams", "bad"]));
+  assert.equal(JSON.stringify(dynamicTools.slice(1).map(tool => tool.name)), JSON.stringify(["top", "topBad"]));
+  assertCanonicalDynamicTools(dynamicTools);
+  assert.deepEqual(prewarm.params.dynamicTools, dynamicTools);
 });
 
 test("patchDynamicToolThreadStartBridgeSource is idempotent", () => {
@@ -539,12 +561,14 @@ test("patchDynamicToolSchemaContractSource normalizes thread-start dynamic tool 
 
   await vm.runInNewContext(`(async()=>{${patched}})()`, context);
 
-  const tools = context.globalThis.result[0].tools;
+  const dynamicTools = context.globalThis.result;
+  const tools = dynamicTools[0].tools;
 
   assert.equal(hasUnguardedDynamicToolSchemaContractSource(patched), false);
   assert.equal(JSON.stringify(tools.map(tool => tool.name)), JSON.stringify(["good", "snake", "parameters"]));
   assert.equal(tools.every(tool => tool.inputSchema?.type === "object"), true);
   assert.equal(tools.every(tool => tool.deferLoading === true), true);
+  assertCanonicalDynamicTools(dynamicTools);
 });
 
 test("patchDynamicToolThreadStartRequestSource normalizes final thread/start params", () => {
@@ -563,13 +587,12 @@ test("patchDynamicToolThreadStartRequestSource normalizes final thread/start par
 
   vm.runInNewContext(patched, context);
 
-  const tools = context.globalThis.sent.payload.request.params.dynamicTools;
+  const dynamicTools = context.globalThis.sent.payload.request.params.dynamicTools;
+  const tools = dynamicTools[0].tools;
 
   assert.equal(hasUnguardedDynamicToolThreadStartRequestSource(patched), false);
   assert.equal(JSON.stringify(tools.map(tool => tool.name)), JSON.stringify(["good", "snake", "params", "bad"]));
-  assert.equal(tools.every(tool => tool.type === "function"), true);
-  assert.equal(tools.every(tool => tool.inputSchema?.type === "object"), true);
-  assert.equal(tools.every(tool => tool.namespace === "codex_app"), true);
+  assertCanonicalDynamicTools(dynamicTools);
 });
 
 test("patchDynamicToolThreadStartRequestSource is idempotent", () => {
