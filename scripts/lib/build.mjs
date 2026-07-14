@@ -23,6 +23,7 @@ const skippedLinuxResourceNames = new Set([
   "app.asar",
   "app.asar.unpacked",
   "codex",
+  "codex-code-mode-host",
   "codex_chronicle",
   "cua_node",
   "native",
@@ -44,11 +45,12 @@ const primaryRuntime = {
 const codexCliRuntime = {
   url:
     process.env.CODEX_CLI_RUNTIME_URL ||
-    "https://github.com/openai/codex/releases/download/rust-v0.140.0/codex-package-x86_64-unknown-linux-musl.tar.gz",
+    "https://github.com/openai/codex/releases/download/rust-v0.144.0-alpha.4/codex-package-x86_64-unknown-linux-musl.tar.gz",
   sha256:
     process.env.CODEX_CLI_RUNTIME_SHA256 ||
-    "9620e798900c6fb289199a9e0a8ed0c3a8cb7e3561048498ebc2dac354a1627b",
-  codexEntry: "bin/codex"
+    "d445749123af97de7e2adf8d66fc52954c8c15d692d19f4cb3d6bd12aafa37ba",
+  codexEntry: "bin/codex",
+  codeModeHostEntry: "bin/codex-code-mode-host"
 };
 
 export async function buildChannel({
@@ -574,10 +576,23 @@ export async function stageLinuxCodexCliRuntime(targetDir) {
   );
   const extractDir = path.join(targetDir, ".codex-cli-runtime-extract");
   const sourceCodex = path.join(extractDir, "bin", "codex");
+  const sourceCodeModeHost = path.join(extractDir, "bin", "codex-code-mode-host");
 
   await ensureEmptyDir(extractDir);
-  await run(["tar", "-xzf", archivePath, "-C", extractDir, codexCliRuntime.codexEntry]);
+  await run([
+    "tar",
+    "-xzf",
+    archivePath,
+    "-C",
+    extractDir,
+    codexCliRuntime.codexEntry,
+    codexCliRuntime.codeModeHostEntry
+  ]);
   await installLinuxRuntimeExecutable(sourceCodex, path.join(targetDir, "codex"));
+  await installLinuxRuntimeExecutable(
+    sourceCodeModeHost,
+    path.join(targetDir, "codex-code-mode-host")
+  );
   await fs.rm(extractDir, { recursive: true, force: true });
 }
 

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { spawn, spawnSync } from "node:child_process";
@@ -8,10 +9,6 @@ import * as asar from "@electron/asar";
 import { channelPaths, getChannel, parseArgs, projectRoot } from "./lib/config.mjs";
 import {
   hasLinuxWindowFocusableContractSource,
-  hasUnguardedDynamicToolSchemaContractSource,
-  hasUnguardedDynamicToolStartResponseSource,
-  hasUnguardedDynamicToolThreadStartBridgeSource,
-  hasUnguardedDynamicToolThreadStartRequestSource,
   hasUnguardedLinuxWindowFocusableSource,
   hasUnguardedOwlFeatureBindingSource
 } from "./lib/upstream-patches.mjs";
@@ -67,6 +64,9 @@ export async function smokeLinuxArtifacts({
   await runCheck(summary, "bundled-codex-launcher", () =>
     assertBundledCodexLauncher(linuxDir, executablePath, resourcesDir)
   );
+  await runCheck(summary, "bundled-codex-dynamic-tools", () =>
+    smokeBundledCodexDynamicTools(resourcesDir)
+  );
   await runCheck(summary, "node_repl", () =>
     smokeNodeRepl(path.join(resourcesDir, "node_repl"))
   );
@@ -78,18 +78,6 @@ export async function smokeLinuxArtifacts({
   );
   await runCheck(summary, "linux-window-focusable-contract", () =>
     assertLinuxWindowFocusableContract(resourcesDir)
-  );
-  await runCheck(summary, "dynamic-tool-schema-contract", () =>
-    assertDynamicToolSchemaContract(resourcesDir)
-  );
-  await runCheck(summary, "dynamic-tool-start-response-contract", () =>
-    assertDynamicToolStartResponseContract(resourcesDir)
-  );
-  await runCheck(summary, "dynamic-tool-thread-start-bridge-contract", () =>
-    assertDynamicToolThreadStartBridgeContract(resourcesDir)
-  );
-  await runCheck(summary, "dynamic-tool-thread-start-request-contract", () =>
-    assertDynamicToolThreadStartRequestContract(resourcesDir)
   );
 
   if (packageDir) {
@@ -279,6 +267,197 @@ export function evaluateBundledCodexLauncherSource(source) {
   }
 }
 
+async function smokeBundledCodexDynamicTools(resourcesDir) {
+  const executablePath = path.resolve(resourcesDir, "codex");
+  await accessFile(executablePath, "bundled Codex CLI");
+  const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-dynamic-tools-"));
+  const child = spawn(executablePath, ["app-server", "--stdio"], {
+    cwd: codexHome,
+    env: {
+      ...process.env,
+      CODEX_HOME: codexHome
+    },
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+  let stderr = "";
+
+  child.stderr.on("data", chunk => {
+    stderr += chunk.toString();
+  });
+
+  try {
+    return await new Promise((resolve, reject) => {
+      let buffer = "";
+      let canonicalThreadId;
+      let legacyThreadId;
+      let settled = false;
+      const timer = setTimeout(() => {
+        finish(reject, new Error(`bundled Codex dynamic-tool smoke timed out: ${stderr.slice(-1000)}`));
+      }, 20_000);
+      const finish = (callback, value) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimeout(timer);
+        callback(value);
+      };
+      const send = message => {
+        child.stdin.write(`${JSON.stringify(message)}\n`);
+      };
+      const threadStartParams = dynamicTools => ({
+        cwd: codexHome,
+        ephemeral: true,
+        dynamicTools
+      });
+
+      child.once("error", error => finish(reject, error));
+      child.once("exit", (code, signal) => {
+        finish(
+          reject,
+          new Error(`bundled Codex app-server exited before dynamic-tool smoke completed: exit=${code} signal=${signal} stderr=${stderr.slice(-1000)}`)
+        );
+      });
+      child.stdout.on("data", chunk => {
+        buffer += chunk.toString();
+
+        while (buffer.includes("\n")) {
+          const newlineIndex = buffer.indexOf("\n");
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+
+          if (!line) {
+            continue;
+          }
+
+          let message;
+
+          try {
+            message = JSON.parse(line);
+          } catch (error) {
+            finish(reject, new Error(`bundled Codex app-server emitted invalid JSON: ${line.slice(0, 500)}`, {
+              cause: error
+            }));
+            return;
+          }
+
+          if (message.id === 1) {
+            if (message.error) {
+              finish(reject, new Error(`bundled Codex initialize failed: ${message.error.message}`));
+              return;
+            }
+
+            send({ method: "initialized", params: {} });
+            send({
+              id: 2,
+              method: "thread/start",
+              params: threadStartParams([{
+                type: "namespace",
+                name: "codex_app",
+                description: "Canonical smoke namespace",
+                tools: [{
+                  type: "function",
+                  name: "canonical_smoke_tool",
+                  description: "Canonical smoke tool",
+                  inputSchema: {
+                    type: "object",
+                    properties: {},
+                    additionalProperties: false
+                  }
+                }]
+              }])
+            });
+            continue;
+          }
+
+          if (message.id === 2) {
+            if (message.error || !message.result?.thread?.id) {
+              finish(reject, new Error(`bundled Codex rejected canonical dynamic tools: ${message.error?.message || "missing thread result"}`));
+              return;
+            }
+
+            canonicalThreadId = message.result.thread.id;
+            send({
+              id: 3,
+              method: "thread/start",
+              params: threadStartParams([{
+                namespace: "legacy_app",
+                name: "legacy_smoke_tool",
+                description: "Legacy smoke tool",
+                inputSchema: {
+                  type: "object",
+                  properties: {},
+                  additionalProperties: false
+                },
+                exposeToContext: true
+              }])
+            });
+            continue;
+          }
+
+          if (message.id === 3) {
+            if (message.error || !message.result?.thread?.id) {
+              finish(reject, new Error(`bundled Codex rejected legacy dynamic tools: ${message.error?.message || "missing thread result"}`));
+              return;
+            }
+
+            legacyThreadId = message.result.thread.id;
+            send({
+              id: 4,
+              method: "thread/start",
+              params: threadStartParams([{
+                type: "function",
+                namespace: "codex_app",
+                name: "hybrid_smoke_tool",
+                description: "Invalid hybrid smoke tool",
+                inputSchema: {
+                  type: "object",
+                  properties: {},
+                  additionalProperties: false
+                }
+              }])
+            });
+            continue;
+          }
+
+          if (message.id === 4) {
+            if (!message.error?.message?.includes("dynamic tools must use either canonical or legacy format consistently")) {
+              finish(reject, new Error(`bundled Codex accepted an invalid hybrid dynamic-tool request: ${JSON.stringify(message)}`));
+              return;
+            }
+
+            finish(resolve, {
+              canonicalThreadId,
+              legacyThreadId,
+              hybridRejected: true
+            });
+            return;
+          }
+        }
+      });
+
+      send({
+        id: 1,
+        method: "initialize",
+        params: {
+          clientInfo: {
+            name: "codex-app-linux-smoke",
+            version: "1.0.0"
+          },
+          capabilities: {
+            experimentalApi: true,
+            requestAttestation: false
+          }
+        }
+      });
+    });
+  } finally {
+    await terminateProcess(child);
+    await fs.rm(codexHome, { recursive: true, force: true });
+  }
+}
+
 async function smokeDesktopBinary(executablePath, resourcesDir) {
   const result = await runCommand(executablePath, ["--no-sandbox"], {
     capture: true,
@@ -369,25 +548,6 @@ async function assertOwlRuntimeContract(resourcesDir) {
   };
 }
 
-async function assertDynamicToolSchemaContract(resourcesDir) {
-  const appAsarPath = path.join(resourcesDir, "app.asar");
-  const unsafeSources = await findUnguardedDynamicToolSchemaSources(appAsarPath);
-
-  if (unsafeSources.unsafe.length > 0) {
-    throw new Error(
-      `Thread-start dynamic tools must normalize inputSchema before startThread; ${unsafeSources.unsafe.slice(0, 5).join(", ")} still exposes an unguarded dynamic tool mapper and can fail with "Invalid request: missing field inputSchema"`
-    );
-  }
-
-  if (unsafeSources.checked === 0) {
-    throw new Error("Unable to find thread-start dynamic tool schema contract in app.asar");
-  }
-
-  return {
-    checked: unsafeSources.checked
-  };
-}
-
 async function assertLinuxWindowFocusableContract(resourcesDir) {
   const appAsarPath = path.join(resourcesDir, "app.asar");
   const unsafeSources = await findLinuxWindowFocusableContractSources(appAsarPath);
@@ -400,63 +560,6 @@ async function assertLinuxWindowFocusableContract(resourcesDir) {
 
   if (unsafeSources.checked === 0) {
     throw new Error("Unable to find Linux BrowserWindow focusable contract in app.asar");
-  }
-
-  return {
-    checked: unsafeSources.checked
-  };
-}
-
-async function assertDynamicToolStartResponseContract(resourcesDir) {
-  const appAsarPath = path.join(resourcesDir, "app.asar");
-  const unsafeSources = await findUnguardedDynamicToolStartResponseSources(appAsarPath);
-
-  if (unsafeSources.unsafe.length > 0) {
-    throw new Error(
-      `Desktop thread-start dynamic tools must normalize inputSchema before app-server thread/start; ${unsafeSources.unsafe.slice(0, 5).join(", ")} still resolves raw dynamicTools and can fail with "Invalid request: missing field inputSchema"`
-    );
-  }
-
-  if (unsafeSources.checked === 0) {
-    throw new Error("Unable to find desktop dynamic tool start response contract in app.asar");
-  }
-
-  return {
-    checked: unsafeSources.checked
-  };
-}
-
-async function assertDynamicToolThreadStartBridgeContract(resourcesDir) {
-  const appAsarPath = path.join(resourcesDir, "app.asar");
-  const unsafeSources = await findUnguardedDynamicToolThreadStartBridgeSources(appAsarPath);
-
-  if (unsafeSources.unsafe.length > 0) {
-    throw new Error(
-      `Electron bridge thread/start requests must normalize dynamicTools inputSchema before app-server; ${unsafeSources.unsafe.slice(0, 5).join(", ")} still forwards raw params and can fail with "Invalid request: missing field inputSchema"`
-    );
-  }
-
-  if (unsafeSources.checked === 0) {
-    throw new Error("Unable to find Electron bridge thread/start request contract in app.asar");
-  }
-
-  return {
-    checked: unsafeSources.checked
-  };
-}
-
-async function assertDynamicToolThreadStartRequestContract(resourcesDir) {
-  const appAsarPath = path.join(resourcesDir, "app.asar");
-  const unsafeSources = await findUnguardedDynamicToolThreadStartRequestSources(appAsarPath);
-
-  if (unsafeSources.unsafe.length > 0) {
-    throw new Error(
-      `Renderer thread/start requests must normalize dynamicTools inputSchema at request creation; ${unsafeSources.unsafe.slice(0, 5).join(", ")} still forwards raw params and can fail with "Invalid request: missing field inputSchema"`
-    );
-  }
-
-  if (unsafeSources.checked === 0) {
-    throw new Error("Unable to find renderer thread/start request params contract in app.asar");
   }
 
   return {
@@ -516,45 +619,6 @@ export function evaluateLinuxWindowFocusableContractSources(sources) {
   };
 }
 
-async function findUnguardedDynamicToolThreadStartBridgeSources(appAsarPath) {
-  const files = await asar.listPackage(appAsarPath);
-  const unsafe = [];
-  let checked = 0;
-
-  for (const file of files) {
-    if (!/\.(?:js|mjs|cjs)$/i.test(file)) {
-      continue;
-    }
-
-    let source;
-
-    try {
-      source = asar.extractFile(appAsarPath, file.replace(/^\//, "")).toString("utf8");
-    } catch {
-      continue;
-    }
-
-    if (
-      !source.includes("app_server.bridge_received") ||
-      !source.includes("handleClientRequest") ||
-      !source.includes("handlePrewarmThreadStart")
-    ) {
-      continue;
-    }
-
-    checked++;
-
-    if (hasUnguardedDynamicToolThreadStartBridgeSource(source)) {
-      unsafe.push(file.replace(/^\//, ""));
-    }
-  }
-
-  return {
-    checked,
-    unsafe
-  };
-}
-
 async function findUnguardedOwlBindingSources(appAsarPath) {
   const files = await asar.listPackage(appAsarPath);
   const unsafe = [];
@@ -578,114 +642,6 @@ async function findUnguardedOwlBindingSources(appAsarPath) {
   }
 
   return unsafe;
-}
-
-async function findUnguardedDynamicToolStartResponseSources(appAsarPath) {
-  const files = await asar.listPackage(appAsarPath);
-  const unsafe = [];
-  let checked = 0;
-
-  for (const file of files) {
-    if (!/\.(?:js|mjs|cjs)$/i.test(file)) {
-      continue;
-    }
-
-    let source;
-
-    try {
-      source = asar.extractFile(appAsarPath, file.replace(/^\//, "")).toString("utf8");
-    } catch {
-      continue;
-    }
-
-    if (
-      !source.includes("handleDynamicToolsForThreadStartResponse") ||
-      !source.includes("pendingDynamicToolsForThreadStartRequests")
-    ) {
-      continue;
-    }
-
-    checked++;
-
-    if (hasUnguardedDynamicToolStartResponseSource(source)) {
-      unsafe.push(file.replace(/^\//, ""));
-    }
-  }
-
-  return {
-    checked,
-    unsafe
-  };
-}
-
-async function findUnguardedDynamicToolSchemaSources(appAsarPath) {
-  const files = await asar.listPackage(appAsarPath);
-  const unsafe = [];
-  let checked = 0;
-
-  for (const file of files) {
-    if (!/\.(?:js|mjs|cjs)$/i.test(file)) {
-      continue;
-    }
-
-    let source;
-
-    try {
-      source = asar.extractFile(appAsarPath, file.replace(/^\//, "")).toString("utf8");
-    } catch {
-      continue;
-    }
-
-    if (!source.includes("Tools provided by the Codex app.") || !source.includes("deferLoading")) {
-      continue;
-    }
-
-    checked++;
-
-    if (hasUnguardedDynamicToolSchemaContractSource(source)) {
-      unsafe.push(file.replace(/^\//, ""));
-    }
-  }
-
-  return {
-    checked,
-    unsafe
-  };
-}
-
-async function findUnguardedDynamicToolThreadStartRequestSources(appAsarPath) {
-  const files = await asar.listPackage(appAsarPath);
-  const unsafe = [];
-  let checked = 0;
-
-  for (const file of files) {
-    if (!/\.(?:js|mjs|cjs)$/i.test(file)) {
-      continue;
-    }
-
-    let source;
-
-    try {
-      source = asar.extractFile(appAsarPath, file.replace(/^\//, "")).toString("utf8");
-    } catch {
-      continue;
-    }
-
-    if (!source.includes("mcp_request_enqueued") || !source.includes("thread/start")) {
-      continue;
-    }
-
-    checked++;
-
-    if (hasUnguardedDynamicToolThreadStartRequestSource(source)) {
-      unsafe.push(file.replace(/^\//, ""));
-    }
-  }
-
-  return {
-    checked,
-    unsafe
-  };
 }
 
 async function smokeWebShell({ linuxDir, packageDir, port }) {
