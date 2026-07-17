@@ -532,6 +532,7 @@ const appUpdateState = {
 const appHostMain = {
   services: {
     appUpdates: {
+      setSparkleQueryParams() {},
       installUpdate() {},
       stateChanged(callback) {
         appUpdateSubscribers.add(callback);
