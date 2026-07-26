@@ -47,6 +47,32 @@ test("patchLinuxChromeExtensionDetectionSource finds stable Chrome profiles", ()
   assert.equal(patchLinuxChromeExtensionDetectionSource(patched), patched);
 });
 
+test("patchLinuxChromeExtensionDetectionSource accepts upstream native Linux profiles", () => {
+  const source =
+    "function Nu({platform:e,homeDirectory:t,localAppData:n}){return e===`darwin`?[p.join(t,`Library`,`Application Support`,`Google`,`Chrome`)]:e===`win32`?n==null?[]:[p.join(n,`Google`,`Chrome`,`User Data`)]:e===`linux`?[p.join(t,`.config`,`google-chrome`),p.join(t,`.config`,`google-chrome-beta`),p.join(t,`.config`,`google-chrome-canary`),p.join(t,`.config`,`chromium`)]:[]}globalThis.resolveChromeRoots=Nu";
+  const patched = patchLinuxChromeExtensionDetectionSource(source);
+  const context = {
+    globalThis: {},
+    p: { join: (...parts) => parts.join("/") }
+  };
+
+  vm.runInNewContext(patched, context);
+
+  assert.equal(patched, source);
+  assert.deepEqual(
+    Array.from(context.globalThis.resolveChromeRoots({
+      homeDirectory: "/home/zero",
+      platform: "linux"
+    })),
+    [
+      "/home/zero/.config/google-chrome",
+      "/home/zero/.config/google-chrome-beta",
+      "/home/zero/.config/google-chrome-canary",
+      "/home/zero/.config/chromium"
+    ]
+  );
+});
+
 test("patchLinuxOpenTargetsSource adds Linux editor targets and exposes app paths", () => {
   const source = withOpenTargetResolver([
     "prefix",
