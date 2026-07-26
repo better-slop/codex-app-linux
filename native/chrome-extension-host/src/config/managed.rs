@@ -208,8 +208,18 @@ fn rank_raw(value: Value, executable: &Path, request: ConfigRequest<'_>) -> Opti
             .and_then(Value::as_array)
             .is_some_and(|values| values.iter().any(|value| value.as_str() == Some(expected)))
     };
-    // Exact Darwin precedence: executable +100, host +50, extension +25,
-    // channel +10, positive presence PID +1; updatedAt breaks score ties.
+    // Registry identity fields are compatibility constraints, not preferences.
+    // Ranking a mismatch could launch another app installation and then relabel
+    // it with the caller's extension ID in the returned host configuration.
+    if !array_contains("nativeHostNames", request.native_host_name)
+        || !array_contains("extensionIds", request.extension_id)
+        || !array_contains("extensionBuildChannels", request.extension_build_channel)
+    {
+        return None;
+    }
+
+    // Among compatible entries, prefer this executable and a live desktop;
+    // updatedAt and entryId provide deterministic tie-breaking in `load`.
     let mut score = 0_u64;
     if paths
         .get("extensionHostPath")
@@ -217,15 +227,6 @@ fn rank_raw(value: Value, executable: &Path, request: ConfigRequest<'_>) -> Opti
         .is_some_and(|path| paths_match(Path::new(path), executable))
     {
         score += 100;
-    }
-    if array_contains("nativeHostNames", request.native_host_name) {
-        score += 50;
-    }
-    if array_contains("extensionIds", request.extension_id) {
-        score += 25;
-    }
-    if array_contains("extensionBuildChannels", request.extension_build_channel) {
-        score += 10;
     }
     if value
         .pointer("/presence/pid")
@@ -357,8 +358,7 @@ mod tests {
         wrong_host["nativeHostNames"] = serde_json::json!(["com.openai.other"]);
         let mut wrong_extension = entry(&root, &binary, EXTENSION_ID);
         wrong_extension["entryId"] = serde_json::json!("wrong-extension");
-        wrong_extension["extensionIds"] =
-            serde_json::json!(["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]);
+        wrong_extension["extensionIds"] = serde_json::json!(["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]);
         let mut wrong_channel = entry(&root, &binary, EXTENSION_ID);
         wrong_channel["entryId"] = serde_json::json!("wrong-channel");
         wrong_channel["extensionBuildChannels"] = serde_json::json!(["dev"]);
@@ -444,17 +444,19 @@ mod tests {
     }
 
     #[test]
-    fn canonical_executable_match_outranks_newer_identity_only_entry() {
+    fn canonical_executable_match_outranks_newer_compatible_entry() {
         let (root, binary) = fixture();
         let symlink_path = root.join("latest-host");
         symlink(&binary, &symlink_path).unwrap();
         let registry_path = root.join(FILE_NAME);
-        let mut canonical_match = entry(&root, &symlink_path, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let other_binary = root.join("other-host");
+        fs::write(&other_binary, b"other").unwrap();
+        let mut canonical_match = entry(&root, &symlink_path, EXTENSION_ID);
         canonical_match["entryId"] = serde_json::json!("canonical-match");
-        let mut identity_only = entry(&root, &root.join("other"), EXTENSION_ID);
-        identity_only["entryId"] = serde_json::json!("identity-only");
-        identity_only["updatedAt"] = serde_json::json!("2027-01-01T00:00:00.000Z");
-        write_registry(&registry_path, vec![identity_only, canonical_match]);
+        let mut newer_compatible = entry(&root, &other_binary, EXTENSION_ID);
+        newer_compatible["entryId"] = serde_json::json!("newer-compatible");
+        newer_compatible["updatedAt"] = serde_json::json!("2027-01-01T00:00:00.000Z");
+        write_registry(&registry_path, vec![newer_compatible, canonical_match]);
 
         let config = load(&binary, &[registry_path], request(EXTENSION_ID))
             .unwrap()
