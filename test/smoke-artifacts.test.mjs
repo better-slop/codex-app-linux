@@ -5,6 +5,7 @@ import {
   evaluateBundledCodexLauncherSource,
   evaluateDesktopBootResult,
   evaluateLinuxWindowFocusableContractSources,
+  formatBrowserSmokeFailure,
   runCommandForTest
 } from "../scripts/smoke-artifacts.mjs";
 import {
@@ -13,6 +14,20 @@ import {
   evaluateLinuxChromeExtensionHostHello,
   parseNativeMessageFrame
 } from "../scripts/lib/chrome-extension-smoke.mjs";
+
+test("browser smoke failures preserve console and rendered-page diagnostics", () => {
+  const message = formatBrowserSmokeFailure({
+    error: new Error("page.waitForFunction: Timeout 45000ms exceeded"),
+    fatalConsole: ["TypeError: missing app host RPC"],
+    bodyText: "  Loading ChatGPT\n\nUpdate required  ",
+    url: "http://127.0.0.1:3000/"
+  });
+
+  assert.match(message, /browser smoke failed for http:\/\/127\.0\.0\.1:3000\//);
+  assert.match(message, /page\.waitForFunction: Timeout 45000ms exceeded/);
+  assert.match(message, /TypeError: missing app host RPC/);
+  assert.match(message, /body: Loading ChatGPT Update required/);
+});
 
 test("desktop boot smoke accepts a silent process still alive at timeout", () => {
   assert.deepEqual(
