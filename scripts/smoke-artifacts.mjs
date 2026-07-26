@@ -739,9 +739,40 @@ async function smokeBrowserPage(url) {
     if (fatalConsole.length > 0) {
       throw new Error(`fatal browser console output: ${fatalConsole.slice(0, 5).join("\n")}`);
     }
+  } catch (error) {
+    let bodyText = "";
+
+    try {
+      bodyText = await page.locator("body").innerText({ timeout: 1000 });
+    } catch {
+      // The page may have crashed or closed. Console output and the original
+      // Playwright error still provide the primary failure evidence.
+    }
+
+    throw new Error(formatBrowserSmokeFailure({
+      error,
+      fatalConsole,
+      bodyText,
+      url
+    }), { cause: error });
   } finally {
     await browser.close();
   }
+}
+
+export function formatBrowserSmokeFailure({ error, fatalConsole = [], bodyText = "", url }) {
+  const details = [`browser smoke failed for ${url}: ${toErrorMessage(error)}`];
+
+  if (fatalConsole.length > 0) {
+    details.push(`console: ${fatalConsole.slice(0, 5).join(" | ")}`);
+  }
+
+  const renderedBody = String(bodyText).replace(/\s+/g, " ").trim().slice(0, 1000);
+  if (renderedBody) {
+    details.push(`body: ${renderedBody}`);
+  }
+
+  return details.join("\n");
 }
 
 async function assertCommandSuccess(command, args, options = {}) {
