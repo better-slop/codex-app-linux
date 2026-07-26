@@ -73,6 +73,14 @@ test("patchLinuxChromeExtensionDetectionSource accepts upstream native Linux pro
   );
 });
 
+test("patchLinuxChromeExtensionDetectionSource accepts metadata-driven Linux profiles", () => {
+  const source =
+    "function Ts({extensionId:e,chromeConfigHome:t=process.env.CHROME_CONFIG_HOME,homeDir:n=h.homedir(),localAppDataDir:r=process.env.LOCALAPPDATA,platform:i=process.platform,xdgConfigHome:a=process.env.XDG_CONFIG_HOME}){let o=js(e);return Ns({homeDir:n,chromeConfigHome:t,localAppDataDir:r,platform:i,xdgConfigHome:a}).some(e=>Ms(e,o))}" +
+    "function Ns({chromeConfigHome:e,homeDir:t,localAppDataDir:r,platform:i,xdgConfigHome:a}){if(i===`darwin`)return[p.join(t,...xs.macos.userDataDirectorySegments)];if(i===`win32`)return[p.join(r??p.join(t,`AppData`,`Local`),...xs.windows.userDataDirectorySegments)];if(i===`linux`){let r=n.On({chromeConfigHome:e,homeDir:t,xdgConfigHome:a});return n.Dn.map(e=>p.join(r,e.userDataDirName))}return[]}";
+
+  assert.equal(patchLinuxChromeExtensionDetectionSource(source), source);
+});
+
 test("patchLinuxOpenTargetsSource adds Linux editor targets and exposes app paths", () => {
   const source = withOpenTargetResolver([
     "prefix",
