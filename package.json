@@ -8,7 +8,7 @@
   "scripts": {
     "canary": "node scripts/canary.mjs",
     "smoke": "node scripts/smoke-artifacts.mjs",
-    "test": "node --test",
+    "test": "node --test test/*.test.mjs",
     "release:prod": "node scripts/release-channel.mjs --channel prod",
     "release:beta": "node scripts/release-channel.mjs --channel beta"
   },
