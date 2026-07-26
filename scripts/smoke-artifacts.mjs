@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { spawn, spawnSync } from "node:child_process";
@@ -270,7 +271,7 @@ export function evaluateBundledCodexLauncherSource(source) {
   }
 }
 
-async function smokeBundledCodexDynamicTools(resourcesDir) {
+export async function smokeBundledCodexDynamicTools(resourcesDir) {
   const executablePath = path.resolve(resourcesDir, "codex");
   await accessFile(executablePath, "bundled Codex CLI");
   const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-dynamic-tools-"));
