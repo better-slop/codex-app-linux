@@ -1,12 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import {
   evaluateBundledCodexLauncherSource,
   evaluateDesktopBootResult,
   evaluateLinuxWindowFocusableContractSources,
   formatBrowserSmokeFailure,
-  runCommandForTest
+  runCommandForTest,
+  smokeBundledCodexDynamicTools
 } from "../scripts/smoke-artifacts.mjs";
 import {
   evaluateLinuxChromeExtensionHostArtifact,
@@ -27,6 +31,36 @@ test("browser smoke failures preserve console and rendered-page diagnostics", ()
   assert.match(message, /page\.waitForFunction: Timeout 45000ms exceeded/);
   assert.match(message, /TypeError: missing app host RPC/);
   assert.match(message, /body: Loading ChatGPT Update required/);
+});
+
+test("bundled Codex dynamic-tool smoke runs its app-server protocol", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-smoke-test-"));
+  const resourcesDir = path.join(root, "resources");
+  const executablePath = path.join(resourcesDir, "codex");
+
+  try {
+    await fs.mkdir(resourcesDir);
+    await fs.writeFile(executablePath, `#!/usr/bin/env node
+const readline = require("node:readline");
+const lines = readline.createInterface({ input: process.stdin });
+lines.on("line", line => {
+  const message = JSON.parse(line);
+  if (message.id === 1) console.log(JSON.stringify({ id: 1, result: {} }));
+  if (message.id === 2) console.log(JSON.stringify({ id: 2, result: { thread: { id: "canonical" } } }));
+  if (message.id === 3) console.log(JSON.stringify({ id: 3, result: { thread: { id: "legacy" } } }));
+  if (message.id === 4) console.log(JSON.stringify({ id: 4, error: { message: "dynamic tools must use either canonical or legacy format consistently" } }));
+});
+`);
+    await fs.chmod(executablePath, 0o755);
+
+    assert.deepEqual(await smokeBundledCodexDynamicTools(resourcesDir), {
+      canonicalThreadId: "canonical",
+      legacyThreadId: "legacy",
+      hybridRejected: true
+    });
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
 
 test("desktop boot smoke accepts a silent process still alive at timeout", () => {
