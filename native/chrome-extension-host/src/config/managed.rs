@@ -349,6 +349,31 @@ mod tests {
     }
 
     #[test]
+    fn excludes_entries_for_other_host_extension_or_channel() {
+        let (root, binary) = fixture();
+        let registry_path = root.join(FILE_NAME);
+        let mut wrong_host = entry(&root, &binary, EXTENSION_ID);
+        wrong_host["entryId"] = serde_json::json!("wrong-host");
+        wrong_host["nativeHostNames"] = serde_json::json!(["com.openai.other"]);
+        let mut wrong_extension = entry(&root, &binary, EXTENSION_ID);
+        wrong_extension["entryId"] = serde_json::json!("wrong-extension");
+        wrong_extension["extensionIds"] =
+            serde_json::json!(["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]);
+        let mut wrong_channel = entry(&root, &binary, EXTENSION_ID);
+        wrong_channel["entryId"] = serde_json::json!("wrong-channel");
+        wrong_channel["extensionBuildChannels"] = serde_json::json!(["dev"]);
+        write_registry(
+            &registry_path,
+            vec![wrong_host, wrong_extension, wrong_channel],
+        );
+
+        let config = load(&binary, &[registry_path], request(EXTENSION_ID)).unwrap();
+
+        assert!(config.is_none());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn scores_identity_matches_and_uses_newest_tie() {
         let (root, binary) = fixture();
         let registry_path = root.join(FILE_NAME);
