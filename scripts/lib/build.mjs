@@ -44,13 +44,16 @@ const primaryRuntime = {
   nodeEntry: "codex-primary-runtime/dependencies/node/bin/node",
   nodeReplEntry: "codex-primary-runtime/dependencies/bin/node_repl"
 };
-const codexCliRuntime = {
+// Keep the Linux runtime aligned with the Codex binary embedded in the current
+// ChatGPT desktop archive. The matching official release ships both Linux
+// executables needed by the desktop app in one verified package.
+export const codexCliRuntime = {
   url:
     process.env.CODEX_CLI_RUNTIME_URL ||
-    "https://github.com/openai/codex/releases/download/rust-v0.144.0-alpha.4/codex-package-x86_64-unknown-linux-musl.tar.gz",
+    "https://github.com/openai/codex/releases/download/rust-v0.146.0-alpha.3.1/codex-package-x86_64-unknown-linux-musl.tar.gz",
   sha256:
     process.env.CODEX_CLI_RUNTIME_SHA256 ||
-    "d445749123af97de7e2adf8d66fc52954c8c15d692d19f4cb3d6bd12aafa37ba",
+    "71696f571d99b83ca09ef482653315fe8b7bfc1c18253662da5406e8d3f17158",
   codexEntry: "bin/codex",
   codeModeHostEntry: "bin/codex-code-mode-host"
 };
