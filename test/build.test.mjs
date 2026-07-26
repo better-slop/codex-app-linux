@@ -5,11 +5,25 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  codexCliRuntime,
   installLinuxRuntimeExecutable,
   patchBetterSqlite3NativeSource,
   stagePackagedResources,
   writeLinuxAppPackageMetadata
 } from "../scripts/lib/build.mjs";
+
+test("Codex CLI runtime matches the current ChatGPT desktop bundle", () => {
+  assert.equal(
+    codexCliRuntime.url,
+    "https://github.com/openai/codex/releases/download/rust-v0.146.0-alpha.3.1/codex-package-x86_64-unknown-linux-musl.tar.gz"
+  );
+  assert.equal(
+    codexCliRuntime.sha256,
+    "71696f571d99b83ca09ef482653315fe8b7bfc1c18253662da5406e8d3f17158"
+  );
+  assert.equal(codexCliRuntime.codexEntry, "bin/codex");
+  assert.equal(codexCliRuntime.codeModeHostEntry, "bin/codex-code-mode-host");
+});
 
 test("stagePackagedResources preserves Linux-safe upstream resources", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-build-test-"));
