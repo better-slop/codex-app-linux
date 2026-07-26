@@ -783,6 +783,10 @@ function isTrueExpression(node) {
 }
 
 function findLinuxChromeExtensionDetectionPatch(source) {
+  if (hasNativeLinuxChromeExtensionDetection(source)) {
+    return { status: "patched" };
+  }
+
   const matches = [...source.matchAll(chromeProfileRootResolverRegex)];
 
   if (matches.length !== 1) {
@@ -810,6 +814,68 @@ function findLinuxChromeExtensionDetectionPatch(source) {
     end: start + "null".length,
     replacement: linuxRoot
   };
+}
+
+function hasNativeLinuxChromeExtensionDetection(source) {
+  const ast = parseJavaScript(source);
+  let foundNativeResolver = false;
+
+  walkAst(ast, node => {
+    if (!isFunctionNode(node) || node.params.length !== 1) {
+      return;
+    }
+
+    const bindings = objectPatternBindings(node.params[0]);
+    const platform = bindings.platform;
+    const homeDirectory = bindings.homeDirectory ?? bindings.homeDir;
+    const localAppData = bindings.localAppData ?? bindings.localAppDataDir;
+
+    if (!platform || !homeDirectory || !localAppData) {
+      return;
+    }
+
+    const commonLiterals = new Set(["darwin", "win32", "linux"]);
+    const directProfileLiterals = new Set([
+      "Library", "Application Support", "Google", "Chrome", "User Data", ".config", "google-chrome"
+    ]);
+    const metadataProfileLiterals = new Set(["AppData", "Local"]);
+    let hasUserDataDirectorySegments = false;
+    let hasUserDataDirName = false;
+
+    // The metadata resolver reads `userDataDirName` inside a `.map()` callback,
+    // so inspect its nested arrow body as part of the resolver contract.
+    walkAst(node, child => {
+      for (const literal of commonLiterals) {
+        if (isStringLiteral(child, literal)) {
+          commonLiterals.delete(literal);
+        }
+      }
+      for (const literal of directProfileLiterals) {
+        if (isStringLiteral(child, literal)) {
+          directProfileLiterals.delete(literal);
+        }
+      }
+      for (const literal of metadataProfileLiterals) {
+        if (isStringLiteral(child, literal)) {
+          metadataProfileLiterals.delete(literal);
+        }
+      }
+      hasUserDataDirectorySegments ||= isMemberPropertyNamed(child, "userDataDirectorySegments");
+      hasUserDataDirName ||= isMemberPropertyNamed(child, "userDataDirName");
+    });
+
+    const hasDirectProfiles = directProfileLiterals.size === 0;
+    const hasMetadataProfiles =
+      bindings.chromeConfigHome &&
+      bindings.xdgConfigHome &&
+      metadataProfileLiterals.size === 0 &&
+      hasUserDataDirectorySegments &&
+      hasUserDataDirName;
+
+    foundNativeResolver ||= commonLiterals.size === 0 && (hasDirectProfiles || hasMetadataProfiles);
+  });
+
+  return foundNativeResolver;
 }
 
 function patchLinuxChromeExtensionDetection(source) {
