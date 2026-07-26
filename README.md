@@ -12,6 +12,11 @@ Run the Codex desktop app on Linux via npm, aur, and a nix flake.
 - downloads the matching Linux desktop binary archive on first run
 - launches the desktop app with `CODEX_CLI_PATH` wired up
 
+OpenAI now publishes the desktop archive as the combined ChatGPT app. This
+project follows those ChatGPT prod/beta archives while intentionally retaining
+the existing `codex-app-linux` npm, AUR, command, and release identities so the
+upstream rebrand does not break Linux installations.
+
 ## Quick Start
 
 ### aur
