@@ -536,6 +536,7 @@ const appHostMain = {
   services: {
     appUpdates: {
       setSparkleQueryParams() {},
+      checkForUpdates() {},
       installUpdate() {},
       stateChanged(callback) {
         appUpdateSubscribers.add(callback);
@@ -546,6 +547,14 @@ const appHostMain = {
           appUpdateSubscribers.delete(callback);
         };
       }
+    },
+    // The browser shell has no desktop auto-resolution scheduler. Upstream
+    // still reports renderer presentation/activity state through this service.
+    requestUserInputAutoResolution: {
+      setDisabled() {},
+      snooze() {},
+      setConversationPresented() {},
+      recordConversationActivity() {}
     }
   }
 };
