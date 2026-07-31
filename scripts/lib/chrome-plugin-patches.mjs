@@ -97,11 +97,27 @@ export function patchLinuxNativeHostManifestCheckSource(source) {
 }
 
 function hasLinuxNativeHostManifestCheck(source) {
-  return (
-    source.includes('process.platform === "linux"') &&
-    source.includes('"NativeMessagingHosts"') &&
-    source.includes("supports macOS, Linux, and Windows")
-  );
+  try {
+    const fn = findNamedFunction(source, "getNativeHostManifestLocation");
+    const functionSource = source.slice(fn.start, fn.end);
+    const locationShape = [
+      'process.platform === "linux"',
+      "manifestPath:",
+      "registryKey: null",
+      "registryManifestPath: null",
+      "registryKeyExists: null"
+    ];
+    const resolvesManifestPath =
+      functionSource.includes('"NativeMessagingHosts"') ||
+      functionSource.includes("resolveLinuxNativeMessagingManifestPath(");
+
+    return (
+      resolvesManifestPath &&
+      locationShape.every(signal => functionSource.includes(signal))
+    );
+  } catch {
+    return false;
+  }
 }
 
 function findNamedFunction(source, name) {
