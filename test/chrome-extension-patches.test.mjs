@@ -17,6 +17,15 @@ const upstreamMaterializer = [
   "}"
 ].join("");
 
+const upstreamMaterializerWithoutChrome = [
+  "async function ol(e){",
+  "let t,n=[];",
+  "if(e.pluginName===`computer-use`?(t=e.computerUseSkillVariant):e.pluginName===`visualize`&&(t=e.liveVisualizationSkillVariant),t==null)return;",
+  "let r=join(e.pluginRoot,`.codex-plugin`,`plugin.json`),i=await schema.parseAsync(JSON.parse(await fs.readFile(r,`utf8`)));",
+  "await fs.writeFile(r,`${JSON.stringify({...i,bundledContentVariant:t},null,2)}\\n`,`utf8`)",
+  "}"
+].join("");
+
 test("patchLinuxChromeExtensionHostContentVariant revises only the Chrome cache identity", () => {
   const patched = patchLinuxChromeExtensionHostContentVariant(upstreamMaterializer);
 
@@ -42,6 +51,16 @@ test("content-variant contract runner accepts an already patched bundle", () => 
   assert.equal(
     applyUpstreamPatchContract(patched, linuxChromeExtensionHostContentVariantContract),
     patched
+  );
+});
+
+test("content-variant contract accepts a materializer without Chrome", () => {
+  assert.equal(
+    applyUpstreamPatchContract(
+      upstreamMaterializerWithoutChrome,
+      linuxChromeExtensionHostContentVariantContract
+    ),
+    upstreamMaterializerWithoutChrome
   );
 });
 
