@@ -132,6 +132,19 @@ test("createAppHostModuleBody exposes Sparkle query params RPC", () => {
   assert.match(body, /appUpdates:\s*\{[\s\S]*?setSparkleQueryParams\(\)\s*\{\s*\}/);
 });
 
+test("createAppHostModuleBody exposes desktop-only no-op services", () => {
+  const body = createAppHostModuleBody(
+    "/tmp/codex-web/webview/assets/rpc-new.js",
+    "/tmp/codex-web/webview"
+  );
+
+  assert.match(body, /appUpdates:\s*\{[\s\S]*?checkForUpdates\(\)\s*\{\s*\}/);
+  assert.match(
+    body,
+    /requestUserInputAutoResolution:\s*\{[\s\S]*?setDisabled\(\)\s*\{\s*\}[\s\S]*?snooze\(\)\s*\{\s*\}[\s\S]*?setConversationPresented\(\)\s*\{\s*\}[\s\S]*?recordConversationActivity\(\)\s*\{\s*\}/
+  );
+});
+
 test("findAppHostRpcModulePath accepts upstream rpc facade layout", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-app-linux-rpc-assets-"));
   const assetsDir = path.join(root, "assets");
