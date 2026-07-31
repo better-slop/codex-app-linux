@@ -4,10 +4,8 @@ import { CHROME_EXTENSION_HOST_CONTENT_VARIANT } from "./chrome-extension-consta
 
 const contractName = "Chrome plugin content-variant";
 const materializerSignals = [
-  ".browserSkillVariant",
-  ".computerUseSkillVariant",
-  ".pluginRoot",
-  ".codex-plugin"
+  ".codex-plugin",
+  "plugin.json"
 ];
 
 export const linuxChromeExtensionHostContentVariantContract = {
@@ -15,11 +13,14 @@ export const linuxChromeExtensionHostContentVariantContract = {
   find: findContentVariantContract,
   assertBefore(source) {
     const match = findContentVariantContract(source);
-    if (match.status !== "patch") throw new Error("Linux Chrome content variant is already present");
+    if (match.status !== "patch") {
+      throw new Error("Linux Chrome content variant does not require patching");
+    }
   },
   apply: patchLinuxChromeExtensionHostContentVariant,
   assertAfter(source) {
-    if (!hasLinuxChromeExtensionHostContentVariant(source)) {
+    const match = findContentVariantContract(source);
+    if (!["patched", "absent"].includes(match.status)) {
       throw new Error("Linux Chrome content variant was not applied");
     }
   }
@@ -29,7 +30,7 @@ function findContentVariantContract(source) {
   if (hasLinuxChromeExtensionHostContentVariant(source)) {
     return { status: "patched" };
   }
-  return { status: "patch", ...findContentVariantMaterializer(source) };
+  return findContentVariantMaterializer(source);
 }
 
 /**
@@ -42,6 +43,10 @@ export function patchLinuxChromeExtensionHostContentVariant(source) {
 
   try {
     const match = findContentVariantMaterializer(source);
+    // Newer upstream builds materialize only computer-use and visualize here.
+    // Chrome's manifest is stamped directly in chrome-plugin-patches.mjs.
+    if (match.status === "absent") return source;
+
     const variantName = source.slice(match.property.value.start, match.property.value.end);
     const replacement =
       `${match.pluginParameter}.pluginName===\`chrome\`?` +
@@ -84,9 +89,20 @@ function findContentVariantMaterializer(source) {
     if (!fn || pluginParameter?.type !== "Identifier") return;
 
     const functionSource = source.slice(fn.start, fn.end);
-    if (!materializerSignals.every(signal => functionSource.includes(signal))) return;
+    const pluginParameterSignals = [
+      `${pluginParameter.name}.pluginName`,
+      `${pluginParameter.name}.pluginRoot`
+    ];
+    if (
+      ![...materializerSignals, ...pluginParameterSignals].every(signal =>
+        functionSource.includes(signal)
+      )
+    ) {
+      return;
+    }
 
     matches.push({
+      functionSource,
       property: node,
       pluginParameter: pluginParameter.name
     });
@@ -96,7 +112,50 @@ function findContentVariantMaterializer(source) {
     throw contractError(`expected one runtime materializer, found ${matches.length}`);
   }
 
-  return matches[0];
+  const [match] = matches;
+  if (
+    referencesParameterProperty(
+      match.functionSource,
+      match.pluginParameter,
+      "browserSkillVariant"
+    ) ||
+    hasPluginNameBranch(match.functionSource, match.pluginParameter, "chrome")
+  ) {
+    return { status: "patch", ...match };
+  }
+
+  if (isKnownNonChromeMaterializer(match.functionSource, match.pluginParameter)) {
+    return { status: "absent", ...match };
+  }
+
+  throw contractError("runtime materializer does not prove whether Chrome is handled");
+}
+
+function isKnownNonChromeMaterializer(functionSource, pluginParameter) {
+  return (
+    referencesParameterProperty(
+      functionSource,
+      pluginParameter,
+      "computerUseSkillVariant"
+    ) &&
+    referencesParameterProperty(
+      functionSource,
+      pluginParameter,
+      "liveVisualizationSkillVariant"
+    ) &&
+    hasPluginNameBranch(functionSource, pluginParameter, "computer-use") &&
+    hasPluginNameBranch(functionSource, pluginParameter, "visualize")
+  );
+}
+
+function referencesParameterProperty(source, parameterName, propertyName) {
+  return source.includes(`${parameterName}.${propertyName}`);
+}
+
+function hasPluginNameBranch(source, parameterName, pluginName) {
+  return ["`", '"', "'"].some(quote =>
+    source.includes(`${parameterName}.pluginName===${quote}${pluginName}${quote}`)
+  );
 }
 
 function isBundledContentVariantProperty(node) {

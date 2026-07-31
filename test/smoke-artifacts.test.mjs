@@ -16,6 +16,7 @@ import {
   evaluateLinuxChromeExtensionHostArtifact,
   evaluateLinuxChromeExtensionHostEnsure,
   evaluateLinuxChromeExtensionHostHello,
+  evaluateLinuxChromePluginManifest,
   parseNativeMessageFrame
 } from "../scripts/lib/chrome-extension-smoke.mjs";
 
@@ -240,6 +241,20 @@ test("Chrome extension host smoke rejects dynamic and non-executable hosts", () 
         mode: 0o644
       }),
     /must be executable/
+  );
+});
+
+test("Chrome extension host smoke requires the Linux cache identity", () => {
+  assert.deepEqual(
+    evaluateLinuxChromePluginManifest({
+      name: "chrome",
+      bundledContentVariant: "linux-extension-host-v3"
+    }),
+    { contentVariant: "linux-extension-host-v3" }
+  );
+  assert.throws(
+    () => evaluateLinuxChromePluginManifest({ name: "chrome" }),
+    /must declare bundledContentVariant linux-extension-host-v3/
   );
 });
 

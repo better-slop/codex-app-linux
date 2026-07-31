@@ -2,12 +2,15 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { parse } from "acorn";
 
+import { CHROME_EXTENSION_HOST_CONTENT_VARIANT } from "./chrome-extension-constants.mjs";
 import { chromePluginRoot } from "./chrome-extension-host.mjs";
 
 const nativeManifestContract = "Linux native-host manifest diagnostics";
+const pluginManifestVariantContract = "Linux Chrome plugin manifest variant";
 
 export async function patchLinuxChromePluginResources(resourcesDir) {
-  const scriptsDir = path.join(chromePluginRoot(resourcesDir), "scripts");
+  const pluginRoot = chromePluginRoot(resourcesDir);
+  const scriptsDir = path.join(pluginRoot, "scripts");
   // browser-client.mjs is SHA-pinned by the desktop runtime. Keep its bytes
   // intact; changing its profile metadata would disable the trusted Node REPL.
   const manifestCheckPath = path.join(scriptsDir, "check-native-host-manifest.js");
@@ -18,6 +21,36 @@ export async function patchLinuxChromePluginResources(resourcesDir) {
   });
   const patched = patchLinuxNativeHostManifestCheckSource(source);
   if (patched !== source) await fs.writeFile(manifestCheckPath, patched);
+
+  const pluginManifestPath = path.join(pluginRoot, ".codex-plugin", "plugin.json");
+  const pluginManifestSource = await fs.readFile(pluginManifestPath, "utf8").catch(error => {
+    throw new Error(`Required Chrome plugin manifest is missing: ${pluginManifestPath}`, {
+      cause: error
+    });
+  });
+  const patchedPluginManifest = patchLinuxChromePluginManifestSource(pluginManifestSource);
+  if (patchedPluginManifest !== pluginManifestSource) {
+    await fs.writeFile(pluginManifestPath, patchedPluginManifest);
+  }
+}
+
+/** Stamp the Linux host revision into the cache identity used by upstream. */
+export function patchLinuxChromePluginManifestSource(source) {
+  try {
+    const manifest = JSON.parse(source);
+    if (manifest?.name !== "chrome") throw new Error("expected the Chrome plugin manifest");
+
+    const currentVariant = manifest.bundledContentVariant;
+    if (currentVariant === CHROME_EXTENSION_HOST_CONTENT_VARIANT) return source;
+    if (currentVariant !== undefined) {
+      throw new Error(`unexpected bundledContentVariant ${JSON.stringify(currentVariant)}`);
+    }
+
+    manifest.bundledContentVariant = CHROME_EXTENSION_HOST_CONTENT_VARIANT;
+    return `${JSON.stringify(manifest, null, 2)}\n`;
+  } catch (error) {
+    throw contractError(pluginManifestVariantContract, error);
+  }
 }
 
 export function patchLinuxNativeHostManifestCheckSource(source) {

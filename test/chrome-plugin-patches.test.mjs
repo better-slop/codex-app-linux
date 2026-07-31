@@ -73,9 +73,12 @@ test("resource patching preserves the trusted browser client bytes", async t => 
   );
 
   await patchLinuxChromePluginResources(resourcesDir);
+  const patchedPluginManifestSource = await fs.readFile(pluginManifestPath, "utf8");
+  await patchLinuxChromePluginResources(resourcesDir);
 
   assert.equal(await fs.readFile(browserClientPath, "utf8"), browserClientSource);
-  assert.deepEqual(JSON.parse(await fs.readFile(pluginManifestPath, "utf8")), {
+  assert.equal(await fs.readFile(pluginManifestPath, "utf8"), patchedPluginManifestSource);
+  assert.deepEqual(JSON.parse(patchedPluginManifestSource), {
     name: "chrome",
     version: "26.727.40816",
     bundledContentVariant: CHROME_EXTENSION_HOST_CONTENT_VARIANT

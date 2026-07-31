@@ -3,7 +3,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { CHROME_EXTENSION_HOST_ARCH } from "./chrome-extension-constants.mjs";
+import {
+  CHROME_EXTENSION_HOST_ARCH,
+  CHROME_EXTENSION_HOST_CONTENT_VARIANT
+} from "./chrome-extension-constants.mjs";
 import { chromePluginRoot } from "./chrome-extension-host.mjs";
 import { projectRoot } from "./config.mjs";
 
@@ -22,18 +25,28 @@ export async function assertLinuxChromeExtensionHost(resourcesDir, channelName) 
     CHROME_EXTENSION_HOST_ARCH,
     "extension-host"
   );
+  const pluginManifestPath = path.join(pluginRoot, ".codex-plugin", "plugin.json");
 
   await fs.access(hostPath).catch(error => {
     throw new Error(`Missing Chrome extension host: ${hostPath}`, { cause: error });
   });
-  const [stat, fileType] = await Promise.all([
+  const [stat, fileType, pluginManifestSource] = await Promise.all([
     fs.stat(hostPath),
-    runFileType(hostPath)
+    runFileType(hostPath),
+    fs.readFile(pluginManifestPath, "utf8")
   ]);
   const artifact = evaluateLinuxChromeExtensionHostArtifact({
     fileType,
     mode: stat.mode & 0o777
   });
+  let pluginManifest;
+  try {
+    pluginManifest = evaluateLinuxChromePluginManifest(JSON.parse(pluginManifestSource));
+  } catch (error) {
+    throw new Error(`Invalid packaged Chrome plugin manifest: ${pluginManifestPath}`, {
+      cause: error
+    });
+  }
   const protocol = await smokeLinuxChromeExtensionHostProtocol({
     channelName,
     hostPath,
@@ -44,8 +57,22 @@ export async function assertLinuxChromeExtensionHost(resourcesDir, channelName) 
   return {
     path: path.relative(resourcesDir, hostPath),
     ...artifact,
+    ...pluginManifest,
     ...protocol
   };
+}
+
+export function evaluateLinuxChromePluginManifest(manifest) {
+  if (
+    manifest?.name !== "chrome" ||
+    manifest?.bundledContentVariant !== CHROME_EXTENSION_HOST_CONTENT_VARIANT
+  ) {
+    throw new Error(
+      `Chrome plugin must declare bundledContentVariant ${CHROME_EXTENSION_HOST_CONTENT_VARIANT}`
+    );
+  }
+
+  return { contentVariant: manifest.bundledContentVariant };
 }
 
 export function evaluateLinuxChromeExtensionHostArtifact({ fileType, mode }) {
