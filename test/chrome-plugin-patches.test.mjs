@@ -20,6 +20,26 @@ function getNativeHostManifestLocation() {
 }
 `;
 
+const upstreamLinuxNativeHostManifestSource = `
+function getNativeHostManifestLocation(expectedBrowser) {
+  if (process.platform === "linux") {
+    return {
+      manifestPath: resolveLinuxNativeMessagingManifestPath({
+        browser: expectedBrowser,
+        env: process.env,
+        homedir: os.homedir(),
+        hostName: expectedHostName,
+        path,
+      }),
+      registryKey: null,
+      registryManifestPath: null,
+      registryKeyExists: null,
+    };
+  }
+  throw new Error(\`Unsupported platform: \${process.platform}\`);
+}
+`;
+
 test("native host diagnostics resolve Chrome's Linux manifest", () => {
   const patched = patchLinuxNativeHostManifestCheckSource(nativeHostManifestSource);
 
@@ -33,6 +53,13 @@ test("native host diagnostics fail closed when the upstream contract drifts", ()
   assert.throws(
     () => patchLinuxNativeHostManifestCheckSource("function unrelated() {}"),
     /Linux native-host manifest diagnostics contract changed/
+  );
+});
+
+test("native host diagnostics preserve upstream Linux manifest resolution", () => {
+  assert.equal(
+    patchLinuxNativeHostManifestCheckSource(upstreamLinuxNativeHostManifestSource),
+    upstreamLinuxNativeHostManifestSource
   );
 });
 
