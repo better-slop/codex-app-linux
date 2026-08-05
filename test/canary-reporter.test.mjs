@@ -22,12 +22,12 @@ test("report-canary-failure creates exactly one actionable GitHub issue", async 
         {
           channel: "prod",
           phase: "build",
-          failingName: "open-target-dispatcher",
+          failingName: "linux-window-background",
           upstreamVersion: "26.616.30709",
           upstreamBuildNumber: "4108",
           packageVersion: "26.616.30709-launcher.29",
-          fingerprint: "prod:open-target-dispatcher:26.616.30709:4108",
-          errorMessage: "open-target-dispatcher contract changed: missing runner",
+          fingerprint: "prod:linux-window-background:26.616.30709:4108",
+          errorMessage: "linux-window-background contract changed: missing window background helper",
           localReproductionCommand: "node scripts/canary.mjs --channel prod",
           codePaths: ["scripts/lib/upstream-patches.mjs"],
           publishBlockedBeforeMutation: true
@@ -64,7 +64,7 @@ test("report-canary-failure creates exactly one actionable GitHub issue", async 
 
   assert.equal(issueMutations.length, 1);
   assert.equal(issueMutations[0][1], "create");
-  assert.match(issueMutations[0].join(" "), /Upstream canary failed: prod open-target-dispatcher 26\.616\.30709/);
+  assert.match(issueMutations[0].join(" "), /Upstream canary failed: prod linux-window-background 26\.616\.30709/);
 
   const body = await readBodyFileFromArgs(issueMutations[0]);
   assert.match(body, /Workflow run \| https:\/\/github\.com\/better-slop\/codex-app-linux\/actions\/runs\/1/);
@@ -73,7 +73,7 @@ test("report-canary-failure creates exactly one actionable GitHub issue", async 
   assert.match(body, /Channel \| prod/);
   assert.match(body, /Upstream build \| 4108/);
   assert.match(body, /Package version \| 26\.616\.30709-launcher\.29/);
-  assert.match(body, /open-target-dispatcher contract changed/);
+  assert.match(body, /linux-window-background contract changed/);
   assert.match(body, /canary log excerpt/);
   assert.match(body, /scripts\/lib\/upstream-patches\.mjs/);
   assert.match(body, /Publish blocked before mutation \| yes/);

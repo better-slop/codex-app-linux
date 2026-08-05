@@ -165,7 +165,7 @@ function codePathsForFailure(name, phase) {
     ];
   }
 
-  if (name.includes("open-target") || name.includes("window")) {
+  if (name.includes("window")) {
     return ["scripts/lib/upstream-patches.mjs", "test/upstream-patches.test.mjs"];
   }
 

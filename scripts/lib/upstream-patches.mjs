@@ -4,22 +4,6 @@ import { parse } from "acorn";
 
 import { linuxChromeExtensionHostContentVariantContract } from "./chrome-extension-patches.mjs";
 
-const linuxOpenTargetDefinitions = ({ openCommandName, executableResolverName }) => [
-  "var __codexLinuxOpenTargetGotoArgs=(e,t)=>t?[`--goto`,`${e}:${t.line}:${t.column}`]:[e]",
-  "__codexLinuxOpenTargetColonArgs=(e,t)=>t?[`${e}:${t.line}:${t.column}`]:[e]",
-  `__codexLinuxOpenTargetTerminal=()=>{let e=process.env.TERMINAL?.trim();if(e&&${executableResolverName}(e))return{command:${executableResolverName}(e),args:e=>[\`-e\`,process.env.SHELL?.trim()||\`/bin/sh\`,\`-lc\`,e]};for(let e of [[\`ghostty\`,e=>[\`-e\`,process.env.SHELL?.trim()||\`/bin/sh\`,\`-lc\`,e]],[\`kitty\`,e=>[\`-e\`,process.env.SHELL?.trim()||\`/bin/sh\`,\`-lc\`,e]],[\`alacritty\`,e=>[\`-e\`,process.env.SHELL?.trim()||\`/bin/sh\`,\`-lc\`,e]],[\`wezterm\`,e=>[\`start\`,\`--\`,process.env.SHELL?.trim()||\`/bin/sh\`,\`-lc\`,e]],[\`gnome-terminal\`,e=>[\`--\`,process.env.SHELL?.trim()||\`/bin/sh\`,\`-lc\`,e]],[\`konsole\`,e=>[\`-e\`,process.env.SHELL?.trim()||\`/bin/sh\`,\`-lc\`,e]],[\`xterm\`,e=>[\`-e\`,process.env.SHELL?.trim()||\`/bin/sh\`,\`-lc\`,e]]]){let t=${executableResolverName}(e[0]);if(t)return{command:t,args:e[1]}}return null}`,
-  "__codexLinuxOpenTargetNvimArgs=(e,t)=>t?[`+call cursor(${t.line},${t.column})`,e]:[e]",
-  "__codexLinuxShellQuote=e=>{e=String(e);return e.length===0?`''`:/^[A-Za-z0-9_/:=.-]+$/.test(e)?e:`'${e.replaceAll(`'`,`'\\\\''`)}'`}",
-  "__codexLinuxOpenTargetNvimCommand=(e,n,r)=>[e,...__codexLinuxOpenTargetNvimArgs(n,r)].map(__codexLinuxShellQuote).join(` `)",
-  `__codexLinuxOpenTargetRunNvim=async({command:e,path:t,location:n})=>{let r=__codexLinuxOpenTargetTerminal();if(!r)throw Error(\`No terminal emulator found for Neovim\`);await ${openCommandName}(r.command,r.args(__codexLinuxOpenTargetNvimCommand(e,t,n)))}`,
-  `__codexLinuxVSCode={id:\`vscode\`,platforms:{linux:{label:\`VS Code\`,icon:\`apps/vscode.png\`,kind:\`editor\`,detect:()=>${executableResolverName}(\`code\`),args:__codexLinuxOpenTargetGotoArgs}}}`,
-  `__codexLinuxVSCodeInsiders={id:\`vscodeInsiders\`,platforms:{linux:{label:\`VS Code Insiders\`,icon:\`apps/vscode-insiders.png\`,kind:\`editor\`,detect:()=>${executableResolverName}(\`code-insiders\`),args:__codexLinuxOpenTargetGotoArgs}}}`,
-  `__codexLinuxCursor={id:\`cursor\`,platforms:{linux:{label:\`Cursor\`,icon:\`apps/cursor.png\`,kind:\`editor\`,detect:()=>${executableResolverName}(\`cursor\`),args:__codexLinuxOpenTargetGotoArgs}}}`,
-  `__codexLinuxZed={id:\`zed\`,platforms:{linux:{label:\`Zed\`,icon:\`apps/zed.png\`,kind:\`editor\`,detect:()=>${executableResolverName}(\`zed\`),args:__codexLinuxOpenTargetColonArgs}}}`,
-  `__codexLinuxNvim={id:\`nvim\`,platforms:{linux:{label:\`Neovim\`,icon:\`apps/terminal.png\`,kind:\`editor\`,detect:()=>${executableResolverName}(\`nvim\`),args:__codexLinuxOpenTargetNvimArgs,open:__codexLinuxOpenTargetRunNvim}}}`
-].join(",");
-const openTargetMapRegex =
-  /targets:\[\.\.\.([A-Za-z_$][\w$]*)\.map\(\(\{id:([A-Za-z_$][\w$]*),label:([A-Za-z_$][\w$]*),icon:([A-Za-z_$][\w$]*),kind:([A-Za-z_$][\w$]*),hidden:([A-Za-z_$][\w$]*)\}\)=>\(\{id:\2,target:\2,label:\3,icon:\4,kind:\5,hidden:\6,available:([A-Za-z_$][\w$]*)\.has\(\2\),default:([A-Za-z_$][\w$]*)===\2\|\|void 0\}\)\),\.\.\.([A-Za-z_$][\w$]*)\]/;
 const linuxTransparencyPatchedRegex =
   /transparent:[A-Za-z_$][\w$]*===`linux`\?!1:[A-Za-z_$][\w$]*,hasShadow:/;
 const linuxTransparencyPatchRegex =
@@ -50,17 +34,6 @@ export const linuxChromeExtensionDetectionContract = {
   assertAfter: assertLinuxChromeExtensionDetectionAfter
 };
 export const upstreamPatchContracts = [
-  // Why: upstream desktop only registers macOS open-in-editor targets; Linux
-  // needs locally installed editors and terminal-backed Neovim. Contract:
-  // upstream still exposes an open-target registry, runner, and preferred-target
-  // mapper. Repro: node scripts/canary.mjs --channel prod --no-smoke.
-  {
-    name: "open-target-dispatcher",
-    find: findOpenTargetRegistry,
-    assertBefore: assertOpenTargetsBefore,
-    apply: applyLinuxOpenTargetsSource,
-    assertAfter: assertOpenTargetsAfter
-  },
   // Why: transparent frameless windows render poorly under Linux compositors.
   // Contract: the main bundle still builds BrowserWindow background options
   // from the parsed window-options object. Repro: node scripts/canary.mjs --channel prod --no-smoke.
@@ -139,20 +112,16 @@ export function patchUpstreamMainSource(source) {
   return applyUpstreamPatchContracts(source, upstreamPatchContracts);
 }
 
-export function patchLinuxOpenTargetsSource(source) {
-  return applyUpstreamPatchContract(source, upstreamPatchContracts[0]);
-}
-
 export function patchLinuxChromeExtensionDetectionSource(source) {
   return applyUpstreamPatchContract(source, linuxChromeExtensionDetectionContract);
 }
 
 export function patchDisableTransparencySource(source) {
-  return applyUpstreamPatchContracts(source, upstreamPatchContracts.slice(1, 3));
+  return applyUpstreamPatchContracts(source, upstreamPatchContracts.slice(0, 2));
 }
 
 export function patchLinuxWindowFocusableSource(source) {
-  return applyUpstreamPatchContract(source, upstreamPatchContracts[3]);
+  return applyUpstreamPatchContract(source, upstreamPatchContracts[2]);
 }
 
 export function patchLinuxOwlFeatureBindingSource(source) {
@@ -244,25 +213,6 @@ export function applyUpstreamPatchContract(source, contract) {
       cause: error
     });
   }
-}
-
-function applyLinuxOpenTargetsSource(source) {
-  let patched = source;
-
-  if (!patched.includes("__codexLinuxVSCode=")) {
-    const openTargets = findOpenTargetRegistry(patched);
-    patched = replaceOnce(
-      patched,
-      openTargets.anchor,
-      `${linuxOpenTargetDefinitions(openTargets)};${openTargets.anchor.replace("[", "[__codexLinuxVSCode,__codexLinuxVSCodeInsiders,__codexLinuxCursor,__codexLinuxZed,__codexLinuxNvim,")}`
-    );
-  }
-
-  patched = patchOpenTargetMap(patched);
-
-  patched = patchOpenTargetPlatformLookup(patched);
-
-  return patched;
 }
 
 async function patchOwlFeatureBindingChunks(buildDir, entries) {
@@ -374,29 +324,6 @@ function patchOwlFeatureBinding(source, patch = findOwlFeatureBindingPatch(sourc
   ].join("");
 
   return replaceOnce(source, patch.anchor, replacement);
-}
-
-function assertOpenTargetsBefore(source) {
-  findOpenTargetRegistry(source);
-  findOpenCommandName(source);
-
-  if (!source.includes("appPath:process.platform===`linux`") && !openTargetMapRegex.test(source)) {
-    throw new Error("missing open target map");
-  }
-}
-
-function assertOpenTargetsAfter(source) {
-  if (!source.includes("__codexLinuxVSCode=")) {
-    throw new Error("missing Linux open target definitions");
-  }
-
-  if (!source.includes("appPath:process.platform===`linux`")) {
-    throw new Error("missing Linux appPath target metadata");
-  }
-
-  if (source.includes("let n=t.platforms[e];return n")) {
-    throw new Error("open target platform lookup is not null-safe");
-  }
 }
 
 function patchLinuxWindowBackground(source) {
@@ -1160,137 +1087,6 @@ function assertLinuxWindowTransparencyAfter(source) {
   if (!patch || patch.status !== "patched") {
     throw new Error("Linux window transparency assertion failed");
   }
-}
-
-function patchOpenTargetMap(source) {
-  if (source.includes("appPath:process.platform===`linux`")) {
-    return source;
-  }
-
-  const match = source.match(openTargetMapRegex);
-
-  if (!match) {
-    throw new Error("Unable to apply upstream patch; missing open target map");
-  }
-
-  const [
-    anchor,
-    targetsVar,
-    idVar,
-    labelVar,
-    iconVar,
-    kindVar,
-    hiddenVar,
-    availableSetVar,
-    defaultTargetVar,
-    extraTargetsVar
-  ] = match;
-
-  const patchedMap =
-    `targets:[...${targetsVar}.map(({id:${idVar},label:${labelVar},icon:${iconVar},kind:${kindVar},hidden:${hiddenVar}})=>({` +
-    `id:${idVar},target:${idVar},label:${labelVar},icon:${iconVar},kind:${kindVar},hidden:${hiddenVar},` +
-    `appPath:process.platform===\`linux\`&&${kindVar}===\`editor\`&&${availableSetVar}.has(${idVar})?Ld().get(${idVar})??null:null,` +
-    `available:${availableSetVar}.has(${idVar}),default:${defaultTargetVar}===${idVar}||void 0})),...${extraTargetsVar}]`;
-
-  return replaceOnce(source, anchor, patchedMap);
-}
-
-function patchOpenTargetPlatformLookup(source) {
-  return source.replaceAll(
-    "let n=t.platforms[e];return n",
-    "let n=t.platforms?.[e];return n"
-  );
-}
-
-function findOpenTargetRegistry(source) {
-  const match = source.match(
-    /var ([A-Za-z_$][\w$]*)=\[[^\]]+\](?:,[A-Za-z_$][\w$]*=[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\(`open-in-targets`\)|\s*;[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\(`open-in-targets`\));\s*function [A-Za-z_$][\w$]*\(e\)\{return \1\.flatMap/
-  );
-
-  if (!match) {
-    throw new Error("Unable to apply upstream patch; missing open target registry");
-  }
-
-  const anchor = source.slice(match.index, source.indexOf("]", match.index) + 1);
-
-  return {
-    anchor,
-    openCommandName: findOpenCommandName(source),
-    executableResolverName: findOpenExecutableResolverName(source)
-  };
-}
-
-function findOpenExecutableResolverName(source) {
-  const resolverMatch = source.match(
-    /function ([A-Za-z_$][\w$]*)\(e\)\{let [A-Za-z_$][\w$]*=[A-Za-z_$][\w$]*\.default\.sync\(e,\{nothrow:!0\}\);return typeof [A-Za-z_$][\w$]*==`string`&&/
-  );
-
-  if (resolverMatch) {
-    return resolverMatch[1];
-  }
-
-  const targetDetectMatch = source.match(
-    /([A-Za-z_$][\w$]*)\(`(?:code|code-insiders|cursor|zed|nvim)`\)/
-  );
-
-  if (targetDetectMatch) {
-    return targetDetectMatch[1];
-  }
-
-  throw new Error("Unable to apply upstream patch; missing open target executable resolver");
-}
-
-function findOpenCommandName(source) {
-  const openDispatcherName = findOpenCommandNameFromDispatcher(source);
-
-  if (openDispatcherName) {
-    return openDispatcherName;
-  }
-
-  const match = source.match(
-    /await ([A-Za-z_$][\w$]*)\([A-Za-z_$][\w$]*,[A-Za-z_$][\w$]*\.args\([^)]*\),\{env:[A-Za-z_$][\w$]*\.env\?\.\(\)\}\)/
-  );
-
-  if (!match) {
-    throw new Error("Unable to apply upstream patch; missing open command runner");
-  }
-
-  return match[1];
-}
-
-function findOpenCommandNameFromDispatcher(source) {
-  const ast = parseJavaScript(source);
-  const names = new Set();
-
-  walkAst(ast, node => {
-    if (!isFunctionNode(node)) {
-      return;
-    }
-
-    const body = source.slice(node.start, node.end);
-
-    if (
-      !body.includes("Unknown open target") ||
-      !body.includes("Open target") ||
-      !body.includes(".args(")
-    ) {
-      return;
-    }
-
-    const match = body.match(
-      /await ([A-Za-z_$][\w$]*)\([A-Za-z_$][\w$]*,[A-Za-z_$][\w$]*\.args\([^)]*\)(?:,\{env:[A-Za-z_$][\w$]*\.env\?\.\(\)\})?\)/
-    );
-
-    if (match) {
-      names.add(match[1]);
-    }
-  });
-
-  if (names.size > 1) {
-    throw new Error("Unable to apply upstream patch; ambiguous open command runner");
-  }
-
-  return names.values().next().value ?? null;
 }
 
 function replaceOnce(source, search, replacement) {
